@@ -32,6 +32,18 @@ uv sync
 
 ## Запуск
 
+### Build
+
+```bash
+pyinstaller --onefile --windowed --name ExcelMaker --add-data "src:src" main.py
+```
+
+или через скрипт:
+
+```bash
+python scripts/build.py
+```
+
 ### CLI
 
 ```bash
@@ -44,10 +56,22 @@ python main.py путь/к/файлу.xlsm
 python main.py путь/к/файлу.xlsm --output result.xlsm
 ```
 
+Или:
+
+```bash
+./dist/ExcelMaker --help
+```
+
 ### GUI
 
 ```bash
 python main.py --gui
+```
+
+Или:
+
+```bash
+./dist/ExcelMaker --gui
 ```
 
 ## Структура проекта

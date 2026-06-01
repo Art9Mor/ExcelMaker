@@ -16,32 +16,44 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 from loguru import logger
+from openpyxl.workbook import Workbook
 
-from ..core.processor import process_file, ProcessingResult
+from ..core.models import SpecDocument
+from ..core.parser import load_and_parse
+from ..core.processor import ProcessingResult
+from ..core.writer import write_spec_to_sheet, save_workbook
 
 
 class WorkerThread(QThread):
     """
-    Поток фоновой обработки файла.
+    Выполняет только запись и сохранение — без load_workbook.
+    Workbook и SpecDocument уже готовы, переданы из главного потока.
     """
-
     finished = pyqtSignal(object)
 
-    def __init__(self, input_path: Path, output_path: Path | None = None) -> None:
-        """
-        Инициализация параметров обработки.
-        """
-
+    def __init__(
+        self,
+        wb: Workbook,
+        doc: SpecDocument,
+        output_path: Path,
+    ) -> None:
         super().__init__()
-        self.input_path = input_path
+        self.wb = wb
+        self.doc = doc
         self.output_path = output_path
 
     def run(self) -> None:
-        """
-        Запуск обработки файла в отдельном потоке.
-        """
-
-        result = process_file(self.input_path, self.output_path)
+        try:
+            write_spec_to_sheet(self.wb, self.doc)
+            save_workbook(self.wb, self.output_path)
+            result = ProcessingResult(
+                success=True,
+                doc=self.doc,
+                output_path=self.output_path,
+            )
+        except Exception as e:
+            logger.exception("Ошибка записи")
+            result = ProcessingResult(success=False, error=str(e))
         self.finished.emit(result)
 
 
@@ -107,7 +119,7 @@ class DropZone(QFrame):
 
     def reset(self) -> None:
         """
-        Отображение выбранного файла.
+        Сброс отображения области перетаскивания.
         """
 
         self.hint_label.setText("Перетащите .xlsm файл сюда\nили нажмите «Выбрать файл»")
@@ -190,15 +202,16 @@ class MainWindow(QWidget):
 
     APP_TITLE = "ЯКНО Spec Generator"
     WINDOW_MIN_W = 640
-    WINDOW_MIN_H = 520
+    WINDOW_MIN_H = 580
 
     def __init__(self) -> None:
         """
-        Главное окно приложения.
+        Инициализация главного окна.
         """
 
         super().__init__()
         self._selected_file: Path | None = None
+        self._output_folder: Path | None = None
         self._worker: WorkerThread | None = None
         self._setup_ui()
         self._setup_log_handler()
@@ -227,6 +240,13 @@ class MainWindow(QWidget):
                 color: #3C4858;
             }
             QPushButton#btn_reset:hover { background-color: #D0D8E0; }
+            QPushButton#btn_output {
+                background-color: #E8ECF0;
+                color: #3C4858;
+                padding: 6px 12px;
+                font-size: 9pt;
+            }
+            QPushButton#btn_output:hover { background-color: #D0D8E0; }
         """)
 
         root = QVBoxLayout(self)
@@ -273,6 +293,21 @@ class MainWindow(QWidget):
         btn_row.addWidget(self.btn_run, stretch=1)
         btn_row.addWidget(self.btn_reset)
         root.addLayout(btn_row)
+
+        output_row = QHBoxLayout()
+        output_row.setSpacing(8)
+
+        self.output_path_label = QLabel("📁 Результат будет сохранён рядом с исходным файлом")
+        self.output_path_label.setStyleSheet("color: #5B6B7A; font-size: 9pt;")
+
+        self.btn_choose_output = QPushButton("Выбрать папку сохранения")
+        self.btn_choose_output.setObjectName("btn_output")
+        self.btn_choose_output.setEnabled(False)
+        self.btn_choose_output.clicked.connect(self._choose_output_folder)
+
+        output_row.addWidget(self.output_path_label, stretch=1)
+        output_row.addWidget(self.btn_choose_output)
+        root.addLayout(output_row)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
@@ -324,7 +359,7 @@ class MainWindow(QWidget):
 
     def _open_file_dialog(self) -> None:
         """
-        Настройка вывода логов в интерфейс.
+        Открытие диалога выбора файла.
         """
 
         path_str, _ = QFileDialog.getOpenFileName(
@@ -336,31 +371,68 @@ class MainWindow(QWidget):
         if path_str:
             self._on_file_selected(Path(path_str))
 
+    def _choose_output_folder(self) -> None:
+        """
+        Выбор папки для сохранения результата.
+        """
+
+        initial_dir = str(self._selected_file.parent) if self._selected_file else ""
+
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку для сохранения результата",
+            initial_dir,
+        )
+
+        if folder:
+            self._output_folder = Path(folder)
+            self.output_path_label.setText(f"📁 Результат будет сохранён в: {folder}")
+            logger.info(f"Выбрана папка сохранения: {folder}")
+        else:
+            self._output_folder = None
+            self.output_path_label.setText("📁 Результат будет сохранён рядом с исходным файлом")
+
     def _on_file_selected(self, path: Path) -> None:
         """
         Обработка выбора файла.
         """
 
         self._selected_file = path
+        self._output_folder = None  # Сбрасываем выбранную папку
+        self.output_path_label.setText("📁 Результат будет сохранён рядом с исходным файлом")
         self.drop_zone.set_file(path)
         self.btn_run.setEnabled(True)
         self.btn_reset.setEnabled(True)
+        self.btn_choose_output.setEnabled(True)
         self._set_status(f"Выбран файл: {path.name}", "info")
         logger.info(f"Файл выбран: {path}")
 
     def _run_processing(self) -> None:
-        """
-        Запуск обработки выбранного файла.
-        """
-
         if not self._selected_file:
             return
+
+        output_path = None
+        if self._output_folder:
+            output_path = self._output_folder / f"{self._selected_file.stem}_specification{self._selected_file.suffix}"
+        if output_path is None:
+            output_path = self._selected_file.parent / f"{self._selected_file.stem}_specification{self._selected_file.suffix}"
 
         self._set_busy(True)
         self._set_status("Обработка...", "info")
         self.log_view.clear()
 
-        self._worker = WorkerThread(self._selected_file)
+        # load_workbook вызываем в главном потоке — здесь
+        try:
+            wb, doc = load_and_parse(self._selected_file)
+        except Exception as e:
+            logger.exception("Ошибка загрузки файла")
+            self._set_busy(False)
+            self._set_status(f"✗ Ошибка: {e}", "error")
+            QMessageBox.critical(self, "Ошибка загрузки", str(e))
+            return
+
+        # Запись и сохранение — в фоновом потоке
+        self._worker = WorkerThread(wb, doc, output_path)
         self._worker.finished.connect(self._on_processing_done)
         self._worker.start()
 
@@ -375,6 +447,11 @@ class MainWindow(QWidget):
         if result.success:
             self._set_status(f"✓ Готово! Сохранено: {result.output_path.name}", "success")
             logger.info(result.summary())
+            QMessageBox.information(
+                self,
+                "Генерация завершена",
+                f"Файл успешно сохранён:\n{result.output_path}"
+            )
         else:
             self._set_status(f"✗ Ошибка: {result.error}", "error")
             QMessageBox.critical(self, "Ошибка обработки", result.error)
@@ -385,9 +462,12 @@ class MainWindow(QWidget):
         """
 
         self._selected_file = None
+        self._output_folder = None
         self.drop_zone.reset()
+        self.output_path_label.setText("📁 Результат будет сохранён рядом с исходным файлом")
         self.btn_run.setEnabled(False)
         self.btn_reset.setEnabled(False)
+        self.btn_choose_output.setEnabled(False)
         self.log_view.clear()
         self._set_status("Выберите файл для начала работы", "info")
 
@@ -400,6 +480,7 @@ class MainWindow(QWidget):
         self.btn_run.setEnabled(not busy)
         self.btn_choose.setEnabled(not busy)
         self.btn_reset.setEnabled(not busy)
+        self.btn_choose_output.setEnabled(not busy and self._selected_file is not None)
 
     def _set_status(self, text: str, kind: str = "info") -> None:
         """
