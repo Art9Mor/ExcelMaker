@@ -7,17 +7,22 @@ from .models import SpecDocument, Section, SpecItem, SpecHeader
 STRUCTURE_HEADER = "Структура"
 RESULT_MARKER = "ИТОГ"
 
-# Колонки в исходном листе (0-based)
-COL_STRUCT = 0  # A — Структура
-COL_HIDE = 1  # B — Скрыть строку (/*)
-COL_NAME = 2  # C — Наименование
-COL_PRICE = 3  # D — Цена, руб
-COL_QTY = 4  # E — Количество
-COL_UNIT = 7  # H — Ед. изм.
+# Настройки (можно менять под разные файлы)
+SECTION_TITLES = {
+    "Корпус": "Корпус",
+    "Отсек высоковольтного выключателя": "Отсек высоковольтного выключателя",
+    "Отсек РЗА": "Отсек РЗА",
+    "Прочее": "Прочее",
+    "Дополнительно": "Прочее",
+}
+
+SECTION_ORDER = ["Корпус", "Отсек высоковольтного выключателя", "Отсек РЗА", "Прочее"]
 
 
 def _clean(v) -> str:
-    return str(v).replace("\xa0", " ").strip() if v is not None else ""
+    if v is None:
+        return ""
+    return str(v).replace("\xa0", " ").strip()
 
 
 def _as_number(v) -> float:
@@ -34,27 +39,47 @@ def _as_number(v) -> float:
         return 0.0
 
 
-def _find_data_start(ws) -> int:
-    for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if row_idx > 100:
-            break
-        if row and len(row) > COL_NAME:
-            if row[COL_STRUCT] == STRUCTURE_HEADER and row[COL_NAME] == "Наименование":
-                logger.debug(f"Найден заголовок таблицы в строке {row_idx}")
-                return row_idx + 1
-    raise ValueError("Не найден заголовок таблицы спецификации")
+def _find_header_row(ws) -> tuple[int, dict]:
+    """Находит строку с заголовками и определяет колонки"""
+    for row_idx in range(1, min(50, ws.max_row + 1)):
+        row = ws[row_idx]
+        if not row:
+            continue
+
+        col_map = {}
+        for col_idx in range(min(10, len(row))):
+            cell = row[col_idx]
+            val = cell.value if hasattr(cell, 'value') else cell
+            if val is None:
+                continue
+            val_str = _clean(val)
+
+            if val_str == "Структура":
+                col_map['struct'] = col_idx
+            elif val_str == "Наименование":
+                col_map['name'] = col_idx
+            elif "Цена" in val_str and "руб" in val_str:
+                col_map['price'] = col_idx
+            elif val_str == "Количество":
+                col_map['qty'] = col_idx
+            elif val_str == "Ед. изм.":
+                col_map['unit'] = col_idx
+
+        # Если нашли основные колонки
+        if 'name' in col_map and 'qty' in col_map:
+            logger.info(f"Найдены колонки в строке {row_idx}: {col_map}")
+            return row_idx, col_map
+
+    raise ValueError("Не найден заголовок таблицы")
 
 
 def _find_project_info(ws) -> SpecHeader:
     header = SpecHeader()
-
-    for row in ws.iter_rows(values_only=True, max_row=30):
+    for row in ws.iter_rows(values_only=True, max_row=40):
         if not row or len(row) < 4:
             continue
-
         param = _clean(row[2]) if len(row) > 2 else ""
         value = _clean(row[3]) if len(row) > 3 else ""
-
         if param == "Проект":
             header.project = value
         elif param == "Наименование изделия":
@@ -63,8 +88,6 @@ def _find_project_info(ws) -> SpecHeader:
             header.customer = value
         elif param == "Шифр документации":
             header.doc_number = value
-
-    logger.info(f"Проект: {header.project}, Оборудование: {header.equipment_type}")
     return header
 
 
@@ -78,86 +101,93 @@ def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
         header=header
     )
 
-    start_row = _find_data_start(ws)
-    logger.info(f"Начало данных: строка {start_row}")
+    header_row, col_map = _find_header_row(ws)
+    logger.info(f"Заголовок в строке {header_row}, колонки: {col_map}")
 
     current_section = None
     section_counter = 0
     item_counter = 0
 
-    section_names = ["Корпус", "Отсек высоковольтного выключателя", "Отсек РЗА", "Прочее"]
+    struct_col = col_map.get('struct', 0)
+    name_col = col_map.get('name', 2)
+    price_col = col_map.get('price')
+    qty_col = col_map.get('qty', 4)
+    unit_col = col_map.get('unit')
 
-    for row_idx in range(start_row, min(ws.max_row + 1, 200)):
+    for row_idx in range(header_row + 1, min(ws.max_row + 1, 500)):
         row = ws[row_idx]
-        if not row or len(row) < 5:
+        if not row:
             continue
 
-        struct_val = _clean(row[COL_STRUCT].value) if row[COL_STRUCT] and row[COL_STRUCT].value else ""
-        hide_val = _clean(row[COL_HIDE].value) if row[COL_HIDE] and row[COL_HIDE].value else ""
-        name_val = _clean(row[COL_NAME].value) if row[COL_NAME] and row[COL_NAME].value else ""
-        price_val = row[COL_PRICE].value if row[COL_PRICE] and row[COL_PRICE].value else None
-        qty_val = row[COL_QTY].value if row[COL_QTY] and row[COL_QTY].value else None
-        unit_val = _clean(row[COL_UNIT].value) if len(row) > COL_UNIT and row[COL_UNIT] and row[
-            COL_UNIT].value else "шт"
+        struct_val = _clean(row[struct_col].value) if struct_col < len(row) and row[struct_col] and row[
+            struct_col].value else ""
+        name_val = _clean(row[name_col].value) if name_col < len(row) and row[name_col] and row[name_col].value else ""
+        price_val = row[price_col].value if price_col and price_col < len(row) and row[price_col] else None
+        qty_val = row[qty_col].value if qty_col < len(row) and row[qty_col] else None
+        unit_val = _clean(row[unit_col].value) if unit_col and unit_col < len(row) and row[unit_col] and row[
+            unit_col].value else "шт"
 
-        if hide_val == "/*":
-            continue
+        # Пропускаем скрытые строки? (раскомментировать если нужно)
+        # hide_col = col_map.get('hide')
+        # if hide_col and hide_col < len(row) and row[hide_col] and row[hide_col].value == "/*":
+        #     continue
 
-        # Пропускаем служебную строку со "Структура"
         if struct_val == STRUCTURE_HEADER:
             continue
 
         if struct_val == RESULT_MARKER or name_val == RESULT_MARKER:
             break
 
-        if struct_val and struct_val in section_names:
+        # Определение секции
+        is_section = struct_val and struct_val not in ["", "None"] and not name_val
+        if is_section:
             section_counter += 1
-            current_section = Section(number=section_counter, title=struct_val)
+            section_title = SECTION_TITLES.get(struct_val, struct_val)
+            current_section = Section(number=section_counter, title=section_title)
             doc.sections.append(current_section)
             item_counter = 0
-            logger.info(f"Секция {section_counter}: {struct_val} (строка {row_idx})")
+            logger.info(f"Секция {section_counter}: {section_title}")
             continue
 
+        # Позиция
         if name_val and current_section:
             has_qty = qty_val is not None and qty_val != 0 and qty_val != ""
             if has_qty:
                 qty = _as_number(qty_val)
-                price = _as_number(price_val)
+                price = _as_number(price_val) if price_val else 0
                 total = price * qty
-
                 item_counter += 1
                 number = f"{section_counter}.{item_counter}"
-                name_clean = ' '.join(name_val.split())
-                if len(name_clean) > 100:
-                    name_clean = name_clean[:97] + "..."
+                name_clean = name_val.strip()
 
                 item = SpecItem(
                     number=number,
                     name=name_clean,
-                    unit=unit_val if unit_val and unit_val != "None" else "шт",
+                    unit=unit_val,
                     quantity=qty,
                     price=price,
                     total=total,
-                    is_hidden=False
                 )
-
                 current_section.items.append(item)
                 current_section.section_total += total
                 doc.grand_total += total
 
-    total_items = sum(len(s.items) for s in doc.sections)
-    logger.info(f"Парсинг завершён: {len(doc.sections)} разделов, {total_items} позиций, итого: {doc.grand_total:.2f}")
+    # Сортировка секций
+    if SECTION_ORDER:
+        doc.sections.sort(
+            key=lambda s: SECTION_ORDER.index(s.title) if s.title in SECTION_ORDER else len(SECTION_ORDER))
+        for idx, section in enumerate(doc.sections, 1):
+            section.number = idx
+            for item_idx, item in enumerate(section.items, 1):
+                item.number = f"{idx}.{item_idx}"
 
-    for section in doc.sections:
-        logger.info(
-            f"  {section.number}. {section.title}: {len(section.items)} позиций, сумма: {section.section_total:.2f}")
-
+    logger.info(
+        f"Парсинг завершён: {len(doc.sections)} разделов, {doc.total_items} позиций, итого: {doc.grand_total:.2f}")
     return doc
 
 
 def load_and_parse(file_path: Path) -> tuple[Workbook, SpecDocument]:
     wb = load_workbook(str(file_path), data_only=True, keep_vba=True)
     source_name = wb.sheetnames[0]
-    logger.info(f"Загружен лист: {source_name}")
     doc = parse_workbook(wb, source_name)
     return wb, doc
