@@ -48,7 +48,7 @@ class WorkerThread(QThread):
             write_spec_to_sheet(self.wb, self.doc)
             self.wb.save(str(self.output_excel_path))
 
-            # Сохраняем Word если нужно
+            # Сохраняем Word
             if self.output_word_path:
                 save_as_word(self.doc, self.output_word_path)
 
@@ -65,9 +65,12 @@ class WorkerThread(QThread):
         self.finished.emit(result)
 
     def stop(self):
-        """Безопасная остановка потока"""
+        """
+        Безопасная остановка потока
+        """
+
         self.quit()
-        self.wait(5000)  # Ждём до 5 секунд
+        self.wait(5000)  # 5 секунд
 
 
 class DropZone(QFrame):
@@ -155,7 +158,7 @@ class QtLogHandler:
 
 
 class MainWindow(QWidget):
-    APP_TITLE = "ЯКНО Spec Generator"
+    APP_TITLE = "EM Spec Generator"
     WINDOW_MIN_W = 640
     WINDOW_MIN_H = 580
 
@@ -384,7 +387,6 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "Выбор формата", "Выберите хотя бы один формат вывода")
             return
 
-        # Формируем путь для СОХРАНЕНИЯ (не перезаписываем исходный)
         if self._output_folder:
             base_path = self._output_folder / f"{self._selected_file.stem}_specification"
         else:
@@ -414,7 +416,6 @@ class MainWindow(QWidget):
             QMessageBox.critical(self, "Ошибка загрузки", str(e))
             return
 
-        # Останавливаем предыдущий поток если есть
         if self._worker is not None:
             self._worker.stop()
             self._worker = None
@@ -445,13 +446,11 @@ class MainWindow(QWidget):
             self._set_status(f"✗ Ошибка: {result.error}", "error")
             QMessageBox.critical(self, "Ошибка обработки", result.error)
 
-        # Очищаем worker после завершения
         if self._worker is not None:
             self._worker.deleteLater()
             self._worker = None
 
     def _reset(self) -> None:
-        # Останавливаем worker если есть
         if self._worker is not None:
             self._worker.stop()
             self._worker = None
@@ -484,7 +483,10 @@ class MainWindow(QWidget):
         self.status_label.setStyleSheet(f"color: {color}; font-size: 9pt;")
 
     def closeEvent(self, event):
-        """Обработка закрытия окна"""
+        """
+        Обработка закрытия окна
+        """
+
         if self._worker is not None:
             self._worker.stop()
             self._worker = None

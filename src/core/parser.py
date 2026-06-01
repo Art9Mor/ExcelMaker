@@ -7,7 +7,7 @@ from .models import SpecDocument, Section, SpecItem, SpecHeader
 STRUCTURE_HEADER = "Структура"
 RESULT_MARKER = "ИТОГ"
 
-# Централизованный словарь соответствия названий разделов
+# Настройки (можно менять под разные файлы)
 SECTION_TITLES = {
     "Корпус": "Корпус",
     "Отсек высоковольтного выключателя": "Отсек высоковольтного выключателя",
@@ -20,11 +20,9 @@ SECTION_ORDER = ["Корпус", "Отсек высоковольтного вы
 
 
 def _clean(v) -> str:
-    """Очищает значение, но СОХРАНЯЕТ переносы строк"""
     if v is None:
         return ""
-    # Не удаляем \n и не заменяем их на пробелы
-    return str(v).replace("\xa0", " ").strip() if isinstance(v, str) else str(v)
+    return str(v).replace("\xa0", " ").strip()
 
 
 def _as_number(v) -> float:
@@ -42,37 +40,37 @@ def _as_number(v) -> float:
 
 
 def _find_header_row(ws) -> tuple[int, dict]:
-    """Автоматически определяет колонки по заголовкам"""
-    for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if row_idx > 50:
-            break
+    """Находит строку с заголовками и определяет колонки"""
+    for row_idx in range(1, min(50, ws.max_row + 1)):
+        row = ws[row_idx]
         if not row:
             continue
 
         col_map = {}
-        for col_idx, val in enumerate(row):
+        for col_idx in range(min(10, len(row))):
+            cell = row[col_idx]
+            val = cell.value if hasattr(cell, 'value') else cell
             if val is None:
                 continue
             val_str = _clean(val)
+
             if val_str == "Структура":
                 col_map['struct'] = col_idx
-            elif "Наименование" in val_str:
+            elif val_str == "Наименование":
                 col_map['name'] = col_idx
             elif "Цена" in val_str and "руб" in val_str:
                 col_map['price'] = col_idx
             elif val_str == "Количество":
                 col_map['qty'] = col_idx
-            elif "Ед. изм" in val_str:
+            elif val_str == "Ед. изм.":
                 col_map['unit'] = col_idx
-            elif val_str == "Скрыть строку" or val_str == "Скрыть строку, символы /*":
-                col_map['hide'] = col_idx
 
-        required = ['struct', 'name', 'price', 'qty', 'unit']
-        if all(k in col_map for k in required):
+        # Если нашли основные колонки
+        if 'name' in col_map and 'qty' in col_map:
             logger.info(f"Найдены колонки в строке {row_idx}: {col_map}")
-            return row_idx + 1, col_map
+            return row_idx, col_map
 
-    raise ValueError("Не удалось определить структуру таблицы")
+    raise ValueError("Не найден заголовок таблицы")
 
 
 def _find_project_info(ws) -> SpecHeader:
@@ -103,34 +101,36 @@ def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
         header=header
     )
 
-    start_row, col_map = _find_header_row(ws)
-    logger.info(f"Начало данных: строка {start_row}")
+    header_row, col_map = _find_header_row(ws)
+    logger.info(f"Заголовок в строке {header_row}, колонки: {col_map}")
 
     current_section = None
     section_counter = 0
     item_counter = 0
 
-    for row_idx in range(start_row, min(ws.max_row + 1, 500)):
+    struct_col = col_map.get('struct', 0)
+    name_col = col_map.get('name', 2)
+    price_col = col_map.get('price')
+    qty_col = col_map.get('qty', 4)
+    unit_col = col_map.get('unit')
+
+    for row_idx in range(header_row + 1, min(ws.max_row + 1, 500)):
         row = ws[row_idx]
-        if not row or len(row) < max(col_map.values()):
+        if not row:
             continue
 
-        # Читаем значения БЕЗ очистки от переносов
-        struct_raw = row[col_map['struct']].value if row[col_map['struct']] else None
-        hide_raw = row[col_map.get('hide', 1)].value if col_map.get('hide') and row[col_map['hide']] else None
-        name_raw = row[col_map['name']].value if row[col_map['name']] else None
-        price_val = row[col_map['price']].value if row[col_map['price']] else None
-        qty_val = row[col_map['qty']].value if row[col_map['qty']] else None
-        unit_raw = row[col_map['unit']].value if row[col_map['unit']] else None
+        struct_val = _clean(row[struct_col].value) if struct_col < len(row) and row[struct_col] and row[
+            struct_col].value else ""
+        name_val = _clean(row[name_col].value) if name_col < len(row) and row[name_col] and row[name_col].value else ""
+        price_val = row[price_col].value if price_col and price_col < len(row) and row[price_col] else None
+        qty_val = row[qty_col].value if qty_col < len(row) and row[qty_col] else None
+        unit_val = _clean(row[unit_col].value) if unit_col and unit_col < len(row) and row[unit_col] and row[
+            unit_col].value else "шт"
 
-        struct_val = _clean(struct_raw) if struct_raw else ""
-        hide_val = _clean(hide_raw) if hide_raw else ""
-        name_val = str(name_raw) if name_raw else ""
-        unit_val = _clean(unit_raw) if unit_raw else "шт"
-
-        # Пропускаем только пустые строки, но НЕ строки с переносами
-        if not name_val and not struct_val:
-            continue
+        # Пропускаем скрытые строки? (раскомментировать если нужно)
+        # hide_col = col_map.get('hide')
+        # if hide_col and hide_col < len(row) and row[hide_col] and row[hide_col].value == "/*":
+        #     continue
 
         if struct_val == STRUCTURE_HEADER:
             continue
@@ -138,6 +138,7 @@ def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
         if struct_val == RESULT_MARKER or name_val == RESULT_MARKER:
             break
 
+        # Определение секции
         is_section = struct_val and struct_val not in ["", "None"] and not name_val
         if is_section:
             section_counter += 1
@@ -148,25 +149,16 @@ def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
             logger.info(f"Секция {section_counter}: {section_title}")
             continue
 
+        # Позиция
         if name_val and current_section:
             has_qty = qty_val is not None and qty_val != 0 and qty_val != ""
             if has_qty:
                 qty = _as_number(qty_val)
-                price = _as_number(price_val)
+                price = _as_number(price_val) if price_val else 0
                 total = price * qty
                 item_counter += 1
                 number = f"{section_counter}.{item_counter}"
-
-                # Сохраняем имя КАК ЕСТЬ (с переносами)
-                # Не удаляем пробелы подряд, не меняем структуру
                 name_clean = name_val.strip()
-
-                # Логируем для отладки
-                if "Механические" in name_clean:
-                    logger.info(f"Найдены Механические блокировки: {repr(name_clean[:100])}")
-                    logger.info(f"Содержит \\n: {'\\n' in name_clean}")
-                    logger.info(f"Содержит chr(10): {chr(10) in name_clean}")
-                    logger.info(f"Количество переносов: {name_clean.count(chr(10))}")
 
                 item = SpecItem(
                     number=number,
@@ -180,6 +172,7 @@ def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
                 current_section.section_total += total
                 doc.grand_total += total
 
+    # Сортировка секций
     if SECTION_ORDER:
         doc.sections.sort(
             key=lambda s: SECTION_ORDER.index(s.title) if s.title in SECTION_ORDER else len(SECTION_ORDER))
