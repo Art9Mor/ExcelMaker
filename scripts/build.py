@@ -4,7 +4,6 @@ from pathlib import Path
 import shutil
 import subprocess
 
-
 PROJECT_ROOT = Path(__file__).parent.parent
 
 DIST_DIR = PROJECT_ROOT / "dist"
@@ -23,6 +22,10 @@ def clean() -> None:
 
     if OUTPUT_DIR.exists():
         shutil.rmtree(OUTPUT_DIR)
+
+    for spec_file in PROJECT_ROOT.glob("*.spec"):
+        spec_file.unlink()
+        print(f"✓ Удалён spec файл: {spec_file}")
 
 
 def build() -> None:
@@ -52,7 +55,6 @@ def build() -> None:
         "--hidden-import", "PyQt6.QtWidgets",
         "--collect-all", "openpyxl",
         "--collect-all", "loguru",
-        str(main_py),
     ]
 
     if icon_path.exists():
@@ -80,21 +82,28 @@ def copy_result() -> None:
     Копирование результата в каталог output.
     """
 
-    exe_source = DIST_DIR / "ExcelMaker.exe"
+    exe_names = ["ExcelMaker", "ExcelMaker.exe"]
+    exe_source = None
 
-    if not exe_source.exists():
-        print(f"❌ Файл {exe_source} не найден!")
+    for name in exe_names:
+        candidate = DIST_DIR / name
+        if candidate.exists():
+            exe_source = candidate
+            break
+
+    if not exe_source:
+        print(f"❌ Исполняемый файл не найден в {DIST_DIR}!")
         if DIST_DIR.exists():
             print(f"Содержимое {DIST_DIR}: {list(DIST_DIR.iterdir())}")
         sys.exit(1)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    shutil.copy2(
-        DIST_DIR / "ExcelMaker.exe",
-        OUTPUT_DIR / "ExcelMaker.exe",
-    )
-    print(f"✓ Файл скопирован: {OUTPUT_DIR / 'ExcelMaker.exe'}")
+    output_file = OUTPUT_DIR / exe_source.name
+    shutil.copy2(exe_source, output_file)
+
+    size_mb = output_file.stat().st_size / (1024 * 1024)
+    print(f"✓ Файл скопирован: {output_file} ({size_mb:.2f} MB)")
 
 
 if __name__ == "__main__":
@@ -108,5 +117,11 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 50)
     print("✨ Сборка завершена!")
-    print(f"📁 Результат: {OUTPUT_DIR / 'ExcelMaker.exe'}")
+
+    output_dir = OUTPUT_DIR
+    if output_dir.exists():
+        files = list(output_dir.iterdir())
+        if files:
+            print(f"📁 Результат: {files[0]}")
+
     print("=" * 50)

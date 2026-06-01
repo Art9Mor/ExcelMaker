@@ -1,170 +1,91 @@
 from pathlib import Path
-
 from loguru import logger
-from openpyxl.utils import get_column_letter
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.styles import Font, Alignment, Border, Side
+from .models import SpecDocument, Section, SpecItem
 
-from .models import SpecDocument
-
-
-def get_or_create_result_sheet(
-    wb: Workbook,
-    sheet_name: str,
-) -> Worksheet:
-    """
-    Создание листа результата.
-    """
-
-    if sheet_name in wb.sheetnames:
-        del wb[sheet_name]
-
-    return wb.create_sheet(sheet_name)
+# Константы колонок для выходного листа
+COL_NUM = 3  # C
+COL_NAME = 4  # D
+COL_UNIT = 6  # F
+COL_QTY = 7  # G
+COL_TOTAL = 8  # H
 
 
-def _autosize_columns(
-    ws: Worksheet,
-) -> None:
-    """
-    Автоматический подбор ширины колонок.
-    """
+def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
+    target_name = doc.target_sheet
+    if target_name not in wb.sheetnames:
+        raise ValueError(f"Лист «{target_name}» не найден")
 
-    for column in ws.columns:
+    ws = wb[target_name]
 
-        max_length = 0
+    # 1. Очистка старых данных (от строки 28 и ниже, чтобы не задеть шапку)
+    # Находим строку с "ИТОГ" или "Структура" для определения конца
+    last_row = 27
+    for r in ws.iter_rows(values_only=True):
+        if any(cell in ("Структура", "ИТОГ") for cell in r if cell):
+            # Находим индекс этой строки
+            pass
 
-        for cell in column:
+            # Для простоты очистим всё с 28 строки до конца
+    for row in ws.iter_rows(min_row=28):
+        for cell in row:
+            cell.value = None
+            cell.font = Font()
+            cell.alignment = Alignment()
+            cell.border = Border()
 
-            if cell.value is None:
-                continue
+    # Стили
+    bold_center_underline = Font(bold=True, underline="single")
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
 
-            max_length = max(
-                max_length,
-                len(str(cell.value)),
-            )
-
-        column_letter = get_column_letter(
-            column[0].column
-        )
-
-        ws.column_dimensions[
-            column_letter
-        ].width = max_length + 3
-
-
-def write_spec_to_sheet(
-    wb: Workbook,
-    doc: SpecDocument,
-) -> None:
-    """
-    Запись спецификации на отдельный лист.
-    """
-
-    ws = get_or_create_result_sheet(
-        wb,
-        doc.target_sheet,
-    )
-
-    row = 1
-
-    ws.cell(
-        row,
-        1,
-    ).value = "Техническая спецификация"
-
-    row += 2
-
-    if doc.header.project:
-
-        ws.cell(
-            row,
-            1,
-        ).value = "Проект"
-
-        ws.cell(
-            row,
-            2,
-        ).value = doc.header.project
-
-        row += 1
-
-    if doc.header.equipment_type:
-
-        ws.cell(
-            row,
-            1,
-        ).value = "Оборудование"
-
-        ws.cell(
-            row,
-            2,
-        ).value = doc.header.equipment_type
-
-        row += 1
-
-    row += 1
-
-    ws.cell(row, 1).value = "№ п/п"
-    ws.cell(row, 2).value = "Наименование"
-    ws.cell(row, 3).value = "Ед. изм."
-    ws.cell(row, 4).value = "Кол-во"
-
-    row += 1
+    curr_row = 28
 
     for section in doc.sections:
+        # Заголовок раздела
+        ws.cell(row=curr_row, column=COL_NUM).value = str(section.number)
+        ws.cell(row=curr_row, column=COL_NAME).value = section.title
 
-        ws.cell(
-            row,
-            1,
-        ).value = str(section.number)
+        # Форматирование заголовка как в VBA
+        ws.cell(row=curr_row, column=COL_NUM).font = bold_center_underline
+        ws.cell(row=curr_row, column=COL_NAME).font = bold_center_underline
+        ws.cell(row=curr_row, column=COL_NUM).alignment = center_align
+        ws.cell(row=curr_row, column=COL_NAME).alignment = center_align
 
-        ws.cell(
-            row,
-            2,
-        ).value = section.title
-
-        row += 1
+        curr_row += 1
 
         for item in section.items:
+            ws.cell(row=curr_row, column=COL_NUM).value = item.number
+            ws.cell(row=curr_row, column=COL_NAME).value = item.name
+            ws.cell(row=curr_row, column=COL_UNIT).value = item.unit
+            ws.cell(row=curr_row, column=COL_QTY).value = item.quantity
+            ws.cell(row=curr_row, column=COL_TOTAL).value = item.total
 
-            ws.cell(
-                row,
-                1,
-            ).value = item.number
+            # Если строка должна быть скрыта
+            if item.is_hidden:
+                ws.row_dimensions[curr_row].hidden = True
 
-            ws.cell(
-                row,
-                2,
-            ).value = item.name
+            curr_row += 1
 
-            ws.cell(
-                row,
-                3,
-            ).value = item.unit
+        # ИТОГ ПО РАЗДЕЛУ
+        ws.cell(row=curr_row, column=COL_NAME).value = "ИТОГ"
+        ws.cell(row=curr_row, column=COL_TOTAL).value = section.section_total
+        ws.cell(row=curr_row, column=COL_NAME).font = Font(bold=True)
+        ws.cell(row=curr_row, column=COL_TOTAL).font = Font(bold=True)
 
-            ws.cell(
-                row,
-                4,
-            ).value = item.quantity
+        curr_row += 2  # Пропуск строки между разделами
 
-            row += 1
+    # ОБЩИЙ ИТОГ
+    ws.cell(row=curr_row, column=COL_NAME).value = "ОБЩИЙ ИТОГ"
+    ws.cell(row=curr_row, column=COL_TOTAL).value = doc.grand_total
+    ws.cell(row=curr_row, column=COL_NAME).font = Font(bold=True)
+    ws.cell(row=curr_row, column=COL_TOTAL).font = Font(bold=True)
 
-        row += 1
-
-    _autosize_columns(ws)
-
-    logger.info(
-        f"Записано разделов: "
-        f"{len(doc.sections)}"
-    )
+    logger.info(f"Спецификация записана: {doc.total_items} поз. Сумма: {doc.grand_total}")
 
 
-def save_workbook(
-    wb: Workbook,
-    file_path: Path,
-) -> None:
-    """
-    Сохранение Excel-файла на диск.
-    """
-
+def save_workbook(wb: Workbook, file_path: Path) -> None:
     wb.save(str(file_path))
+    logger.info(f"Файл сохранён: {file_path}")

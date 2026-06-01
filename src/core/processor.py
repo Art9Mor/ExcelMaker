@@ -62,45 +62,16 @@ def process_file(
     input_path: Path,
     output_path: Path | None = None,
 ) -> ProcessingResult:
-    """
-    Обработка Excel-файла и сохранение результата.
-    """
-
-    if input_path.suffix.lower() != ".xlsm":
-        raise ValueError(
-            "Поддерживаются только файлы .xlsm"
-        )
-
-    output_path = (
-        output_path
-        or build_output_path(input_path)
-    )
+    # Сохраняем рядом с исходным если output не указан
+    if output_path is None:
+        output_path = input_path.parent / f"{input_path.stem}_specification{input_path.suffix}"
 
     try:
         wb, doc = load_and_parse(input_path)
-
-        write_spec_to_sheet(
-            wb,
-            doc,
-        )
-
-        save_workbook(
-            wb,
-            output_path,
-        )
-
-        return ProcessingResult(
-            success=True,
-            doc=doc,
-            output_path=output_path,
-        )
-
+        write_spec_to_sheet(wb, doc)
+        save_workbook(wb, output_path)
+        return ProcessingResult(success=True, doc=doc, output_path=output_path)
     except Exception as e:
-        logger.exception(
-            "Ошибка обработки"
-        )
+        logger.exception("Ошибка обработки")
+        return ProcessingResult(success=False, error=str(e))
 
-        return ProcessingResult(
-            success=False,
-            error=str(e),
-        )
