@@ -3,87 +3,142 @@ from loguru import logger
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Font, Alignment, Border, Side
-from .models import SpecDocument, Section, SpecItem
+from openpyxl.utils import get_column_letter
 
-# Константы колонок для выходного листа
-COL_NUM = 3  # C
-COL_NAME = 4  # D
-COL_UNIT = 6  # F
-COL_QTY = 7  # G
-COL_TOTAL = 8  # H
+from .models import SpecDocument
+
+
+def create_result_sheet(wb: Workbook, sheet_name: str = "Спецификация") -> Worksheet:
+    """Создаёт новый лист для результата"""
+    if sheet_name in wb.sheetnames:
+        del wb[sheet_name]
+    return wb.create_sheet(sheet_name)
 
 
 def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
-    target_name = doc.target_sheet
-    if target_name not in wb.sheetnames:
-        raise ValueError(f"Лист «{target_name}» не найден")
-
-    ws = wb[target_name]
-
-    # 1. Очистка старых данных (от строки 28 и ниже, чтобы не задеть шапку)
-    # Находим строку с "ИТОГ" или "Структура" для определения конца
-    last_row = 27
-    for r in ws.iter_rows(values_only=True):
-        if any(cell in ("Структура", "ИТОГ") for cell in r if cell):
-            # Находим индекс этой строки
-            pass
-
-            # Для простоты очистим всё с 28 строки до конца
-    for row in ws.iter_rows(min_row=28):
-        for cell in row:
-            cell.value = None
-            cell.font = Font()
-            cell.alignment = Alignment()
-            cell.border = Border()
+    """
+    Записывает спецификацию на новый отдельный лист
+    """
+    ws = create_result_sheet(wb, "Спецификация")
 
     # Стили
-    bold_center_underline = Font(bold=True, underline="single")
-    center_align = Alignment(horizontal="center", vertical="center")
-    left_align = Alignment(horizontal="left", vertical="center")
+    title_font = Font(bold=True, size=14, name='Arial')
+    header_font = Font(bold=True, size=11, name='Arial')
+    section_font = Font(bold=True, size=11, name='Arial')
+    total_font = Font(bold=True, size=11, name='Arial')
+    normal_font = Font(size=10, name='Arial')
 
-    curr_row = 28
+    center_align = Alignment(horizontal='center', vertical='center')
+    left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    right_align = Alignment(horizontal='right', vertical='center')
 
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    row = 1
+
+    # Заголовок
+    ws.merge_cells(f'A{row}:E{row}')
+    ws.cell(row, 1, "Техническая спецификация")
+    ws.cell(row, 1).font = title_font
+    ws.cell(row, 1).alignment = center_align
+    row += 2
+
+    # Название изделия
+    if doc.header and doc.header.equipment_type:
+        ws.merge_cells(f'A{row}:E{row}')
+        ws.cell(row, 1, doc.header.equipment_type)
+        ws.cell(row, 1).font = Font(bold=True, size=12)
+        ws.cell(row, 1).alignment = center_align
+        row += 2
+
+    # Шапка таблицы
+    headers = ['№ п/п', 'Наименование', 'Ед. изм.', 'Кол-во', 'Сумма, руб']
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row, col, header)
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.border = thin_border
+    row += 1
+
+    # Заполнение данных
     for section in doc.sections:
-        # Заголовок раздела
-        ws.cell(row=curr_row, column=COL_NUM).value = str(section.number)
-        ws.cell(row=curr_row, column=COL_NAME).value = section.title
+        # Заголовок секции
+        ws.merge_cells(f'A{row}:E{row}')
+        cell = ws.cell(row, 1, f"{section.number}  {section.title}")
+        cell.font = section_font
+        cell.alignment = left_align
+        cell.border = thin_border
+        row += 1
 
-        # Форматирование заголовка как в VBA
-        ws.cell(row=curr_row, column=COL_NUM).font = bold_center_underline
-        ws.cell(row=curr_row, column=COL_NAME).font = bold_center_underline
-        ws.cell(row=curr_row, column=COL_NUM).alignment = center_align
-        ws.cell(row=curr_row, column=COL_NAME).alignment = center_align
-
-        curr_row += 1
-
+        # Позиции секции
         for item in section.items:
-            ws.cell(row=curr_row, column=COL_NUM).value = item.number
-            ws.cell(row=curr_row, column=COL_NAME).value = item.name
-            ws.cell(row=curr_row, column=COL_UNIT).value = item.unit
-            ws.cell(row=curr_row, column=COL_QTY).value = item.quantity
-            ws.cell(row=curr_row, column=COL_TOTAL).value = item.total
+            ws.cell(row, 1, item.number).border = thin_border
+            ws.cell(row, 1).alignment = center_align
+            ws.cell(row, 1).font = normal_font
 
-            # Если строка должна быть скрыта
-            if item.is_hidden:
-                ws.row_dimensions[curr_row].hidden = True
+            ws.cell(row, 2, item.name).border = thin_border
+            ws.cell(row, 2).alignment = left_align
+            ws.cell(row, 2).font = normal_font
 
-            curr_row += 1
+            ws.cell(row, 3, item.unit).border = thin_border
+            ws.cell(row, 3).alignment = center_align
+            ws.cell(row, 3).font = normal_font
 
-        # ИТОГ ПО РАЗДЕЛУ
-        ws.cell(row=curr_row, column=COL_NAME).value = "ИТОГ"
-        ws.cell(row=curr_row, column=COL_TOTAL).value = section.section_total
-        ws.cell(row=curr_row, column=COL_NAME).font = Font(bold=True)
-        ws.cell(row=curr_row, column=COL_TOTAL).font = Font(bold=True)
+            ws.cell(row, 4, item.quantity).border = thin_border
+            ws.cell(row, 4).alignment = center_align
+            ws.cell(row, 4).font = normal_font
 
-        curr_row += 2  # Пропуск строки между разделами
+            ws.cell(row, 5, item.total).border = thin_border
+            ws.cell(row, 5).alignment = right_align
+            ws.cell(row, 5).font = normal_font
+            ws.cell(row, 5).number_format = '#,##0.00'
 
-    # ОБЩИЙ ИТОГ
-    ws.cell(row=curr_row, column=COL_NAME).value = "ОБЩИЙ ИТОГ"
-    ws.cell(row=curr_row, column=COL_TOTAL).value = doc.grand_total
-    ws.cell(row=curr_row, column=COL_NAME).font = Font(bold=True)
-    ws.cell(row=curr_row, column=COL_TOTAL).font = Font(bold=True)
+            row += 1
 
-    logger.info(f"Спецификация записана: {doc.total_items} поз. Сумма: {doc.grand_total}")
+        # Итог по разделу (если есть позиции)
+        if section.items and section.section_total > 0:
+            ws.merge_cells(f'A{row}:D{row}')
+            cell = ws.cell(row, 1, "ИТОГО по разделу")
+            cell.font = total_font
+            cell.alignment = right_align
+            cell.border = thin_border
+
+            ws.cell(row, 5, section.section_total).border = thin_border
+            ws.cell(row, 5).font = total_font
+            ws.cell(row, 5).alignment = right_align
+            ws.cell(row, 5).number_format = '#,##0.00'
+            row += 1
+
+        row += 1  # Отступ после секции
+
+    # Общий итог
+    if doc.grand_total > 0:
+        ws.merge_cells(f'A{row}:D{row}')
+        cell = ws.cell(row, 1, "ОБЩИЙ ИТОГ")
+        cell.font = Font(bold=True, size=12)
+        cell.alignment = right_align
+        cell.border = thin_border
+
+        ws.cell(row, 5, doc.grand_total).border = thin_border
+        ws.cell(row, 5).font = Font(bold=True, size=12)
+        ws.cell(row, 5).alignment = right_align
+        ws.cell(row, 5).number_format = '#,##0.00'
+
+    # Автоширина
+    for col in range(1, 6):
+        max_len = 0
+        for r in range(1, row + 5):
+            val = ws.cell(r, col).value
+            if val:
+                max_len = max(max_len, len(str(val)))
+        ws.column_dimensions[get_column_letter(col)].width = min(max_len + 3, 50)
+
+    logger.info(f"Создан лист 'Спецификация' с {doc.total_items} позициями, итого: {doc.grand_total:.2f}")
 
 
 def save_workbook(wb: Workbook, file_path: Path) -> None:
