@@ -3,7 +3,6 @@ from loguru import logger
 from openpyxl.workbook.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Font, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
 from .models import SpecDocument
 
@@ -30,6 +29,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
 
     center_align = Alignment(horizontal='center', vertical='center')
     left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    left_top_align = Alignment(horizontal='left', vertical='top', wrap_text=True)
     right_align = Alignment(horizontal='right', vertical='center')
 
     thin_border = Border(
@@ -43,7 +43,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
 
     # Заголовок
     ws.merge_cells(f'A{row}:E{row}')
-    ws.cell(row, 1, "Техническая спецификация")
+    ws.cell(row, 1).value = "Техническая спецификация"
     ws.cell(row, 1).font = title_font
     ws.cell(row, 1).alignment = center_align
     row += 2
@@ -51,7 +51,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
     # Название изделия
     if doc.header and doc.header.equipment_type:
         ws.merge_cells(f'A{row}:E{row}')
-        ws.cell(row, 1, doc.header.equipment_type)
+        ws.cell(row, 1).value = doc.header.equipment_type
         ws.cell(row, 1).font = Font(bold=True, size=12)
         ws.cell(row, 1).alignment = center_align
         row += 2
@@ -68,79 +68,114 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
     # Заполнение данных
     for section in doc.sections:
         # Заголовок секции
-        ws.merge_cells(f'A{row}:E{row}')
-        cell = ws.cell(row, 1, f"{section.number}  {section.title}")
-        cell.font = section_font
-        cell.alignment = left_align
-        cell.border = thin_border
+        ws.cell(row, 1).value = str(section.number)
+        ws.cell(row, 2).value = section.title
+        ws.cell(row, 1).font = section_font
+        ws.cell(row, 2).font = section_font
+        ws.cell(row, 1).alignment = center_align
+        ws.cell(row, 2).alignment = center_align
+        for col in [1, 2, 3, 4, 5]:
+            ws.cell(row, col).border = thin_border
         row += 1
 
         # Позиции секции
         for item in section.items:
-            ws.cell(row, 1, item.number).border = thin_border
-            ws.cell(row, 1).alignment = center_align
-            ws.cell(row, 1).font = normal_font
+            # Записываем номер
+            cell_num = ws.cell(row, 1, item.number)
+            cell_num.border = thin_border
+            cell_num.alignment = center_align
+            cell_num.font = normal_font
 
-            ws.cell(row, 2, item.name).border = thin_border
-            ws.cell(row, 2).alignment = left_align
-            ws.cell(row, 2).font = normal_font
+            # Записываем наименование с СОХРАНЕНИЕМ переносов
+            cell_name = ws.cell(row, 2, item.name)
+            cell_name.border = thin_border
+            cell_name.font = normal_font
+            # ВАЖНО: включаем перенос текста
+            cell_name.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
 
-            ws.cell(row, 3, item.unit).border = thin_border
-            ws.cell(row, 3).alignment = center_align
-            ws.cell(row, 3).font = normal_font
+            # Если есть переносы строк, принудительно устанавливаем высоту строки
+            if item.name and '\n' in item.name:
+                lines_count = item.name.count('\n') + 1
+                ws.row_dimensions[row].height = 12.75 * lines_count
+                logger.debug(f"Установлена высота строки {row}: {ws.row_dimensions[row].height} для {lines_count} строк")
 
-            ws.cell(row, 4, item.quantity).border = thin_border
-            ws.cell(row, 4).alignment = center_align
-            ws.cell(row, 4).font = normal_font
+            # Ед. изм
+            cell_unit = ws.cell(row, 3, item.unit)
+            cell_unit.border = thin_border
+            cell_unit.alignment = center_align
+            cell_unit.font = normal_font
 
-            ws.cell(row, 5, item.total).border = thin_border
-            ws.cell(row, 5).alignment = right_align
-            ws.cell(row, 5).font = normal_font
-            ws.cell(row, 5).number_format = '#,##0.00'
+            # Количество
+            cell_qty = ws.cell(row, 4, item.quantity)
+            cell_qty.border = thin_border
+            cell_qty.alignment = center_align
+            cell_qty.font = normal_font
+
+            # Сумма
+            cell_total = ws.cell(row, 5, item.total)
+            cell_total.border = thin_border
+            cell_total.alignment = right_align
+            cell_total.font = normal_font
+            cell_total.number_format = '#,##0.00'
 
             row += 1
 
-        # Итог по разделу (если есть позиции)
-        if section.items and section.section_total > 0:
+        # Итог по разделу
+        if section.section_total > 0:
             ws.merge_cells(f'A{row}:D{row}')
             cell = ws.cell(row, 1, "ИТОГО по разделу")
+            cell.border = thin_border
             cell.font = total_font
             cell.alignment = right_align
-            cell.border = thin_border
 
-            ws.cell(row, 5, section.section_total).border = thin_border
-            ws.cell(row, 5).font = total_font
-            ws.cell(row, 5).alignment = right_align
-            ws.cell(row, 5).number_format = '#,##0.00'
+            cell_total = ws.cell(row, 5, section.section_total)
+            cell_total.border = thin_border
+            cell_total.font = total_font
+            cell_total.alignment = right_align
+            cell_total.number_format = '#,##0.00'
             row += 1
 
-        row += 1  # Отступ после секции
+        row += 1
 
     # Общий итог
     if doc.grand_total > 0:
         ws.merge_cells(f'A{row}:D{row}')
         cell = ws.cell(row, 1, "ОБЩИЙ ИТОГ")
+        cell.border = thin_border
         cell.font = Font(bold=True, size=12)
         cell.alignment = right_align
-        cell.border = thin_border
 
-        ws.cell(row, 5, doc.grand_total).border = thin_border
-        ws.cell(row, 5).font = Font(bold=True, size=12)
-        ws.cell(row, 5).alignment = right_align
-        ws.cell(row, 5).number_format = '#,##0.00'
+        cell_total = ws.cell(row, 5, doc.grand_total)
+        cell_total.border = thin_border
+        cell_total.font = Font(bold=True, size=12)
+        cell_total.alignment = right_align
+        cell_total.number_format = '#,##0.00'
 
-    # Автоширина
-    for col in range(1, 6):
-        max_len = 0
-        for r in range(1, row + 5):
-            val = ws.cell(r, col).value
-            if val:
-                max_len = max(max_len, len(str(val)))
-        ws.column_dimensions[get_column_letter(col)].width = min(max_len + 3, 50)
+    # Ширина колонок
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 80
+    ws.column_dimensions['C'].width = 12
+    ws.column_dimensions['D'].width = 10
+    ws.column_dimensions['E'].width = 18
+
+    # Дополнительно: для всех ячеек в колонке B включаем перенос текста
+    for r in range(1, row + 1):
+        cell = ws.cell(r, 2)
+        if cell.value:
+            cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
 
     logger.info(f"Создан лист 'Спецификация' с {doc.total_items} позициями, итого: {doc.grand_total:.2f}")
 
 
 def save_workbook(wb: Workbook, file_path: Path) -> None:
-    wb.save(str(file_path))
-    logger.info(f"Файл сохранён: {file_path}")
+    """Сохраняет workbook"""
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(str(file_path))
+        if file_path.exists():
+            logger.info(f"Файл сохранён: {file_path} (размер: {file_path.stat().st_size} байт)")
+        else:
+            logger.error(f"Файл НЕ создан: {file_path}")
+    except Exception as e:
+        logger.error(f"Ошибка сохранения: {e}")
+        raise

@@ -14,85 +14,79 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QSizePolicy,
     QMessageBox,
+    QCheckBox,
+    QGroupBox,
 )
 from loguru import logger
-from openpyxl.workbook import Workbook
 
 from ..core.models import SpecDocument
 from ..core.parser import load_and_parse
 from ..core.processor import ProcessingResult
-from ..core.writer import write_spec_to_sheet, save_workbook
+from ..core.writer import write_spec_to_sheet
+from ..core.word_generator import save_as_word
 
 
 class WorkerThread(QThread):
-    """
-    Выполняет только запись и сохранение — без load_workbook.
-    Workbook и SpecDocument уже готовы, переданы из главного потока.
-    """
     finished = pyqtSignal(object)
 
     def __init__(
-        self,
-        wb: Workbook,
-        doc: SpecDocument,
-        output_path: Path,
+            self,
+            wb,
+            doc: SpecDocument,
+            output_excel_path: Path,
+            output_word_path: Path | None = None,
     ) -> None:
         super().__init__()
         self.wb = wb
         self.doc = doc
-        self.output_path = output_path
+        self.output_excel_path = output_excel_path
+        self.output_word_path = output_word_path
 
     def run(self) -> None:
         try:
+            # Сохраняем Excel
             write_spec_to_sheet(self.wb, self.doc)
-            save_workbook(self.wb, self.output_path)
+            self.wb.save(str(self.output_excel_path))
+
+            # Сохраняем Word если нужно
+            if self.output_word_path:
+                save_as_word(self.doc, self.output_word_path)
+
             result = ProcessingResult(
                 success=True,
                 doc=self.doc,
-                output_path=self.output_path,
+                output_path=self.output_excel_path,
+                word_path=self.output_word_path,
             )
         except Exception as e:
             logger.exception("Ошибка записи")
             result = ProcessingResult(success=False, error=str(e))
+
         self.finished.emit(result)
+
+    def stop(self):
+        """Безопасная остановка потока"""
+        self.quit()
+        self.wait(5000)  # Ждём до 5 секунд
 
 
 class DropZone(QFrame):
-    """
-    Область перетаскивания файлов.
-    """
-
     file_dropped = pyqtSignal(Path)
 
-    _DEFAULT_STYLE = """
-        DropZone {
+    _STYLE = """
+        QFrame {
             border: 2px dashed #5B8DB8;
             border-radius: 10px;
             background-color: #F4F8FC;
         }
-        DropZone:hover {
-            border-color: #2E75B6;
-            background-color: #E8F1FA;
-        }
-    """
-    _ACTIVE_STYLE = """
-        DropZone {
-            border: 2px solid #2E75B6;
-            border-radius: 10px;
-            background-color: #D6E8F7;
-        }
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """
-        Инициализация области перетаскивания.
-        """
-
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setMinimumHeight(120)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setStyleSheet(self._DEFAULT_STYLE)
+        self.setStyleSheet(self._STYLE)
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -110,48 +104,25 @@ class DropZone(QFrame):
         layout.addWidget(self.hint_label)
 
     def set_file(self, path: Path) -> None:
-        """
-        Отображение выбранного файла.
-        """
-
         self.hint_label.setText(f"✓  {path.name}")
         self.hint_label.setStyleSheet("color: #1A6B2A; font-weight: bold;")
 
     def reset(self) -> None:
-        """
-        Сброс отображения области перетаскивания.
-        """
-
         self.hint_label.setText("Перетащите .xlsm файл сюда\nили нажмите «Выбрать файл»")
         self.hint_label.setStyleSheet("color: #5B6B7A; font-weight: normal;")
-        self.setStyleSheet(self._DEFAULT_STYLE)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
-        """
-        Обработка входа файла в область перетаскивания.
-        """
-
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             if any(u.toLocalFile().lower().endswith((".xlsm", ".xlsx")) for u in urls):
                 event.acceptProposedAction()
-                self.setStyleSheet(self._ACTIVE_STYLE)
                 return
         event.ignore()
 
     def dragLeaveEvent(self, event) -> None:
-        """
-        Обработка выхода файла из области перетаскивания.
-        """
-
-        self.setStyleSheet(self._DEFAULT_STYLE)
+        pass
 
     def dropEvent(self, event: QDropEvent) -> None:
-        """
-        Обработка сброса файла в область перетаскивания.
-        """
-
-        self.setStyleSheet(self._DEFAULT_STYLE)
         for url in event.mimeData().urls():
             path = Path(url.toLocalFile())
             if path.suffix.lower() in (".xlsm", ".xlsx"):
@@ -160,22 +131,10 @@ class DropZone(QFrame):
 
 
 class QtLogHandler:
-    """
-    Обработчик вывода логов в интерфейс.
-    """
-
     def __init__(self, text_edit: QTextEdit) -> None:
-        """
-        Инициализация обработчика логов.
-        """
-
         self.text_edit = text_edit
 
     def write(self, message: str) -> None:
-        """
-        Вывод сообщения в журнал интерфейса.
-        """
-
         stripped = message.strip()
         if not stripped:
             return
@@ -196,19 +155,11 @@ class QtLogHandler:
 
 
 class MainWindow(QWidget):
-    """
-    Главное окно приложения.
-    """
-
     APP_TITLE = "ЯКНО Spec Generator"
     WINDOW_MIN_W = 640
     WINDOW_MIN_H = 580
 
     def __init__(self) -> None:
-        """
-        Инициализация главного окна.
-        """
-
         super().__init__()
         self._selected_file: Path | None = None
         self._output_folder: Path | None = None
@@ -217,14 +168,10 @@ class MainWindow(QWidget):
         self._setup_log_handler()
 
     def _setup_ui(self) -> None:
-        """
-        Создание элементов пользовательского интерфейса.
-        """
-
         self.setWindowTitle(self.APP_TITLE)
         self.setMinimumSize(self.WINDOW_MIN_W, self.WINDOW_MIN_H)
         self.setStyleSheet("""
-            QWidget { font-family: 'Segoe UI'; font-size: 10pt; background: #FAFBFC; }
+            QWidget { font-family: 'Segoe UI'; font-size: 10pt; background: #FAFBFC; color: #2C3E50; }
             QPushButton {
                 background-color: #2E75B6;
                 color: white;
@@ -247,6 +194,49 @@ class MainWindow(QWidget):
                 font-size: 9pt;
             }
             QPushButton#btn_output:hover { background-color: #D0D8E0; }
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #D0D8E0;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
+                background-color: white;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+            QCheckBox {
+                spacing: 5px;
+                color: #2C3E50;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+            }
+            QLabel {
+                color: #2C3E50;
+            }
+            QProgressBar {
+                border: none;
+                background: #E8ECF0;
+                border-radius: 3px;
+                height: 6px;
+            }
+            QProgressBar::chunk {
+                background: #2E75B6;
+                border-radius: 3px;
+            }
+            QTextEdit {
+                background: #F8F9FA;
+                border: 1px solid #D0D8E0;
+                border-radius: 6px;
+                padding: 6px;
+                font-family: Consolas, monospace;
+                font-size: 9pt;
+                color: #2C3E50;
+            }
         """)
 
         root = QVBoxLayout(self)
@@ -256,23 +246,36 @@ class MainWindow(QWidget):
         title = QLabel(self.APP_TITLE)
         title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         title.setStyleSheet("color: #1A2D40;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
 
-        subtitle = QLabel(
-            "Генерирует спецификацию из данных первого листа .xlsm файла"
-        )
+        subtitle = QLabel("Генерирует спецификацию из данных первого листа .xlsm файла")
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color: #5B6B7A; font-size: 9pt;")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(subtitle)
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #D0D8E0;")
+        line.setStyleSheet("background-color: #D0D8E0; max-height: 1px;")
         root.addWidget(line)
 
         self.drop_zone = DropZone()
         self.drop_zone.file_dropped.connect(self._on_file_selected)
         root.addWidget(self.drop_zone)
+
+        format_group = QGroupBox("Формат вывода")
+        format_group.setStyleSheet("QGroupBox { background-color: white; }")
+        format_layout = QHBoxLayout(format_group)
+
+        self.check_excel = QCheckBox("Excel (XLSX)")
+        self.check_excel.setChecked(True)
+        self.check_word = QCheckBox("Word (DOCX)")
+
+        format_layout.addWidget(self.check_excel)
+        format_layout.addWidget(self.check_word)
+        format_layout.addStretch()
+        root.addWidget(format_group)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
@@ -312,11 +315,6 @@ class MainWindow(QWidget):
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
-        self.progress.setFixedHeight(6)
-        self.progress.setStyleSheet("""
-            QProgressBar { border: none; background: #E8ECF0; border-radius: 3px; }
-            QProgressBar::chunk { background: #2E75B6; border-radius: 3px; }
-        """)
         root.addWidget(self.progress)
 
         self.status_label = QLabel("Выберите файл для начала работы")
@@ -331,24 +329,9 @@ class MainWindow(QWidget):
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMinimumHeight(180)
-        self.log_view.setStyleSheet("""
-            QTextEdit {
-                background: #F0F3F5;
-                border: 1px solid #D0D8E0;
-                border-radius: 6px;
-                padding: 6px;
-                font-family: Consolas, monospace;
-                font-size: 9pt;
-                color: #2C3E50;
-            }
-        """)
         root.addWidget(self.log_view, stretch=1)
 
     def _setup_log_handler(self) -> None:
-        """
-        Настройка вывода логов в интерфейс.
-        """
-
         handler = QtLogHandler(self.log_view)
         logger.add(
             handler.write,
@@ -358,10 +341,6 @@ class MainWindow(QWidget):
         )
 
     def _open_file_dialog(self) -> None:
-        """
-        Открытие диалога выбора файла.
-        """
-
         path_str, _ = QFileDialog.getOpenFileName(
             self,
             "Выберите файл Excel",
@@ -372,18 +351,12 @@ class MainWindow(QWidget):
             self._on_file_selected(Path(path_str))
 
     def _choose_output_folder(self) -> None:
-        """
-        Выбор папки для сохранения результата.
-        """
-
         initial_dir = str(self._selected_file.parent) if self._selected_file else ""
-
         folder = QFileDialog.getExistingDirectory(
             self,
             "Выберите папку для сохранения результата",
             initial_dir,
         )
-
         if folder:
             self._output_folder = Path(folder)
             self.output_path_label.setText(f"📁 Результат будет сохранён в: {folder}")
@@ -393,12 +366,8 @@ class MainWindow(QWidget):
             self.output_path_label.setText("📁 Результат будет сохранён рядом с исходным файлом")
 
     def _on_file_selected(self, path: Path) -> None:
-        """
-        Обработка выбора файла.
-        """
-
         self._selected_file = path
-        self._output_folder = None  # Сбрасываем выбранную папку
+        self._output_folder = None
         self.output_path_label.setText("📁 Результат будет сохранён рядом с исходным файлом")
         self.drop_zone.set_file(path)
         self.btn_run.setEnabled(True)
@@ -411,17 +380,31 @@ class MainWindow(QWidget):
         if not self._selected_file:
             return
 
-        output_path = None
+        if not self.check_excel.isChecked() and not self.check_word.isChecked():
+            QMessageBox.warning(self, "Выбор формата", "Выберите хотя бы один формат вывода")
+            return
+
+        # Формируем путь для СОХРАНЕНИЯ (не перезаписываем исходный)
         if self._output_folder:
-            output_path = self._output_folder / f"{self._selected_file.stem}_specification{self._selected_file.suffix}"
-        if output_path is None:
-            output_path = self._selected_file.parent / f"{self._selected_file.stem}_specification{self._selected_file.suffix}"
+            base_path = self._output_folder / f"{self._selected_file.stem}_specification"
+        else:
+            base_path = self._selected_file.parent / f"{self._selected_file.stem}_specification"
+
+        output_excel_path = None
+        output_word_path = None
+
+        if self.check_excel.isChecked():
+            output_excel_path = base_path.with_suffix(".xlsm")
+            logger.info(f"Будет сохранён Excel: {output_excel_path}")
+
+        if self.check_word.isChecked():
+            output_word_path = base_path.with_suffix(".docx")
+            logger.info(f"Будет сохранён Word: {output_word_path}")
 
         self._set_busy(True)
         self._set_status("Обработка...", "info")
         self.log_view.clear()
 
-        # load_workbook вызываем в главном потоке — здесь
         try:
             wb, doc = load_and_parse(self._selected_file)
         except Exception as e:
@@ -431,35 +414,47 @@ class MainWindow(QWidget):
             QMessageBox.critical(self, "Ошибка загрузки", str(e))
             return
 
-        # Запись и сохранение — в фоновом потоке
-        self._worker = WorkerThread(wb, doc, output_path)
+        # Останавливаем предыдущий поток если есть
+        if self._worker is not None:
+            self._worker.stop()
+            self._worker = None
+
+        self._worker = WorkerThread(wb, doc, output_excel_path, output_word_path)
         self._worker.finished.connect(self._on_processing_done)
         self._worker.start()
 
     def _on_processing_done(self, result: ProcessingResult) -> None:
-        """
-        Обработка завершения генерации спецификации.
-        """
-
         self._set_busy(False)
-        self._worker = None
 
         if result.success:
-            self._set_status(f"✓ Готово! Сохранено: {result.output_path.name}", "success")
+            msg = "✅ Файлы успешно сохранены:\n\n"
+            if self.check_excel.isChecked() and result.output_path:
+                msg += f"📊 Excel: {result.output_path}\n"
+            if self.check_word.isChecked():
+                if result.word_path:
+                    msg += f"📄 Word: {result.word_path}"
+                elif result.output_path:
+                    word_path = result.output_path.with_suffix(".docx")
+                    if word_path.exists():
+                        msg += f"📄 Word: {word_path}"
+
+            self._set_status("✓ Готово!", "success")
             logger.info(result.summary())
-            QMessageBox.information(
-                self,
-                "Генерация завершена",
-                f"Файл успешно сохранён:\n{result.output_path}"
-            )
+            QMessageBox.information(self, "Генерация завершена", msg)
         else:
             self._set_status(f"✗ Ошибка: {result.error}", "error")
             QMessageBox.critical(self, "Ошибка обработки", result.error)
 
+        # Очищаем worker после завершения
+        if self._worker is not None:
+            self._worker.deleteLater()
+            self._worker = None
+
     def _reset(self) -> None:
-        """
-        Сброс состояния интерфейса.
-        """
+        # Останавливаем worker если есть
+        if self._worker is not None:
+            self._worker.stop()
+            self._worker = None
 
         self._selected_file = None
         self._output_folder = None
@@ -472,10 +467,6 @@ class MainWindow(QWidget):
         self._set_status("Выберите файл для начала работы", "info")
 
     def _set_busy(self, busy: bool) -> None:
-        """
-        Переключение режима занятости интерфейса.
-        """
-
         self.progress.setVisible(busy)
         self.btn_run.setEnabled(not busy)
         self.btn_choose.setEnabled(not busy)
@@ -483,10 +474,6 @@ class MainWindow(QWidget):
         self.btn_choose_output.setEnabled(not busy and self._selected_file is not None)
 
     def _set_status(self, text: str, kind: str = "info") -> None:
-        """
-        Обновление строки состояния.
-        """
-
         colors = {
             "info": "#5B6B7A",
             "success": "#1A6B2A",
@@ -495,3 +482,10 @@ class MainWindow(QWidget):
         color = colors.get(kind, colors["info"])
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {color}; font-size: 9pt;")
+
+    def closeEvent(self, event):
+        """Обработка закрытия окна"""
+        if self._worker is not None:
+            self._worker.stop()
+            self._worker = None
+        event.accept()
