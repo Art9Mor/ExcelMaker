@@ -3,22 +3,30 @@ import os
 from pathlib import Path
 from loguru import logger
 
-def get_app_data_dir() -> Path:
-    """Возвращает правильную папку для хранения логов"""
-    if getattr(sys, 'frozen', False):
-        # .exe режим
-        return Path(sys.executable).parent / "logs"
-    else:
-        # Python режим
-        if sys.platform == "win32":
-            # Windows
-            app_data = os.environ.get('APPDATA', str(Path.home() / 'AppData' / 'Roaming'))
-            return Path(app_data) / "EMSpecGenerator" / "logs"
-        else:
-            # Linux/Mac
-            return Path.home() / ".local" / "share" / "EMSpecGenerator" / "logs"
 
-LOG_DIR = get_app_data_dir()
+def get_log_dir() -> Path:
+    """Получить правильную директорию для логов в зависимости от окружения"""
+    if getattr(sys, 'frozen', False):
+        # Запущено как exe - пишем логи в папку рядом с exe
+        exe_dir = Path(sys.executable).parent
+        log_dir = exe_dir / "logs"
+    else:
+        # Режим разработки
+        log_dir = Path.home() / "AppData" / "Local" / "EMSpecGenerator" / "logs"
+
+    # Создаем директорию если её нет
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        # Если не можем создать, используем временную папку
+        import tempfile
+        log_dir = Path(tempfile.gettempdir()) / "EMSpecGenerator_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+    return log_dir
+
+
+LOG_DIR = get_log_dir()
 LOG_FILE = LOG_DIR / "app.log"
 
 _configured = False
@@ -35,30 +43,66 @@ def setup_logger(log_level: str = "DEBUG", log_to_file: bool = True, force: bool
     # Удаляем все существующие обработчики
     logger.remove()
 
-    # Добавляем вывод в консоль (всегда)
-    logger.add(
-        sys.stderr,
-        level=log_level,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | {message}",
-        colorize=True,
-    )
+    # Проверяем, доступен ли stderr
+    if sys.stderr is not None:
+        try:
+            logger.add(
+                sys.stderr,
+                level=log_level,
+                format="<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | {message}",
+                colorize=True,
+            )
+        except Exception:
+            # Если stderr не работает, используем stdout
+            if sys.stdout is not None:
+                logger.add(
+                    sys.stdout,
+                    level=log_level,
+                    format="{time:HH:mm:ss} | {level:<8} | {message}",
+                )
+    elif sys.stdout is not None:
+        logger.add(
+            sys.stdout,
+            level=log_level,
+            format="{time:HH:mm:ss} | {level:<8} | {message}",
+        )
+    else:
+        # Если ни stderr ни stdout не доступны, создаем файл лога в текущей директории
+        fallback_log = Path("fallback_log.txt")
+        logger.add(
+            str(fallback_log),
+            level=log_level,
+            format="{time:HH:mm:ss} | {level:<8} | {message}",
+        )
 
-    # Добавляем файловый лог
     if log_to_file:
         try:
+            # Убеждаемся, что директория существует
             LOG_DIR.mkdir(parents=True, exist_ok=True)
+
             logger.add(
                 str(LOG_FILE),
                 level="DEBUG",
                 format="{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}",
                 rotation="5 MB",
-                retention=3,
+                retention=5,
                 encoding="utf-8",
-                enqueue=True,
+                backtrace=True,
+                diagnose=True,
+                enqueue=True,  # Добавляем для потокобезопасности
             )
+            # Пробуем записать тестовое сообщение
             logger.debug(f"Лог-файл: {LOG_FILE}")
         except Exception as e:
-            logger.warning(f"Не удалось создать лог-файл: {e}")
+            # Если не можем писать в файл, просто игнорируем
+            pass
 
     _configured = True
-    logger.info(f"Логирование настроено. Уровень: {log_level}")
+
+    # Логируем информацию о окружении (если удалось)
+    try:
+        logger.info(f"Логгер настроен. Режим: {'Frozen (exe)' if getattr(sys, 'frozen', False) else 'Development'}")
+        logger.info(f"Директория логов: {LOG_DIR}")
+        logger.info(f"Текущая директория: {os.getcwd()}")
+    except Exception:
+        pass
