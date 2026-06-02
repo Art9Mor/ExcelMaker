@@ -18,14 +18,12 @@ WRITER_CONFIG = {
 
 
 def create_result_sheet(wb: Workbook, sheet_name: str = None) -> Worksheet:
-    """Создаёт новый лист для результата в чистом workbook"""
     if sheet_name is None:
         sheet_name = WRITER_CONFIG["sheet_name"]
     return wb.create_sheet(sheet_name)
 
 
 def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
-    """Записывает спецификацию на новый лист в чистом workbook"""
     ws = create_result_sheet(wb)
 
     # Стили
@@ -71,20 +69,29 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
         cell.border = thin_border
     row += 1
 
+    # Запоминаем строки с заголовками секций
+    section_rows = []
+
     # Заполнение данных
     for section in doc.sections:
         # Заголовок секции
-        ws.cell(row, 1).value = str(section.number)
-        ws.cell(row, 2).value = section.title
-        ws.cell(row, 1).font = section_font
-        ws.cell(row, 2).font = section_font
-        ws.cell(row, 1).alignment = center_align
-        ws.cell(row, 2).alignment = center_align
-        for col in range(1, 6):
+        cell_num = ws.cell(row, 1, str(section.number))
+        cell_num.font = section_font
+        cell_num.alignment = center_align
+        cell_num.border = thin_border
+
+        cell_title = ws.cell(row, 2, section.title)
+        cell_title.font = section_font
+        cell_title.alignment = center_align
+        cell_title.border = thin_border
+
+        section_rows.append(row)
+
+        for col in [3, 4, 5]:
             ws.cell(row, col).border = thin_border
         row += 1
 
-        # Позиции
+        # Позиции секции
         for item in section.items:
             # Номер
             cell_num = ws.cell(row, 1, item.number)
@@ -98,7 +105,6 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
             cell_name.font = normal_font
             cell_name.alignment = left_top_align
 
-            # Автовысота
             if WRITER_CONFIG["enable_auto_height"] and item.name and ('\n' in item.name):
                 lines = item.name.count('\n') + 1
                 ws.row_dimensions[row].height = 12.75 * lines
@@ -124,7 +130,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
 
             row += 1
 
-        # Итог по разделу
+        # Итог по разделу - объединяем колонки A-D
         if section.section_total > 0:
             ws.merge_cells(f'A{row}:D{row}')
             cell = ws.cell(row, 1, WRITER_CONFIG["total_text"])
@@ -132,16 +138,16 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
             cell.font = total_font
             cell.alignment = right_align
 
+            # Сумма в колонке E
             cell_total = ws.cell(row, 5, section.section_total)
             cell_total.border = thin_border
             cell_total.font = total_font
             cell_total.alignment = right_align
             cell_total.number_format = '#,##0.00'
+
             row += 1
 
-        row += 1
-
-    # Общий итог
+    # Общий итог - объединяем колонки A-D
     if doc.grand_total > 0:
         ws.merge_cells(f'A{row}:D{row}')
         cell = ws.cell(row, 1, WRITER_CONFIG["grand_total_text"])
@@ -155,22 +161,20 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
         cell_total.alignment = right_align
         cell_total.number_format = '#,##0.00'
 
+    # Принудительное центрирование для заголовков секций
+    for r in section_rows:
+        ws.cell(r, 1).alignment = center_align
+        ws.cell(r, 2).alignment = center_align
+
     # Установка ширины колонок
     for col_letter, width in WRITER_CONFIG["column_widths"].items():
         ws.column_dimensions[col_letter].width = width
-
-    # Включаем перенос текста для колонки B
-    for r in range(1, row + 1):
-        cell = ws.cell(r, 2)
-        if cell.value:
-            cell.alignment = left_top_align
 
     logger.info(
         f"Создан лист '{WRITER_CONFIG['sheet_name']}' с {doc.total_items} позициями, итого: {doc.grand_total:.2f}")
 
 
 def save_workbook(wb: Workbook, file_path: Path) -> None:
-    """Сохраняет workbook"""
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         wb.save(str(file_path))

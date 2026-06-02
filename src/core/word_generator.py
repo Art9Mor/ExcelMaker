@@ -23,16 +23,20 @@ def set_cell_border(cell, border_size=1):
         tcPr.append(border)
 
 
+def merge_cells(row, start_col, end_col):
+    """Объединяет ячейки в строке от start_col до end_col"""
+    if start_col == end_col:
+        return
+    cell = row.cells[start_col]
+    cell.merge(row.cells[end_col])
+
+
 def set_cell_text(cell, text, bold=False, alignment=None):
-    """Устанавливает текст в ячейку с поддержкой переносов строк"""
     if not text:
         cell.text = ""
         return
 
-    # Очищаем ячейку
     cell.text = ""
-
-    # Разбиваем текст по переносам строк и добавляем отдельные параграфы
     lines = str(text).split('\n')
 
     for i, line in enumerate(lines):
@@ -78,7 +82,6 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-    # Ширина колонок
     table.columns[0].width = Cm(2)
     table.columns[1].width = Cm(10)
     table.columns[2].width = Cm(2)
@@ -104,11 +107,10 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
         for cell in row.cells:
             set_cell_border(cell)
 
-        # Позиции секции
+        # Позиции
         for item in section.items:
             row = table.add_row()
             set_cell_text(row.cells[0], item.number, alignment=WD_ALIGN_PARAGRAPH.CENTER)
-            # Для наименования используем LEFT выравнивание с переносами
             set_cell_text(row.cells[1], item.name, alignment=WD_ALIGN_PARAGRAPH.LEFT)
             set_cell_text(row.cells[2], item.unit, alignment=WD_ALIGN_PARAGRAPH.CENTER)
             qty_str = str(int(item.quantity)) if item.quantity == int(item.quantity) else str(item.quantity)
@@ -117,30 +119,22 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
             for cell in row.cells:
                 set_cell_border(cell)
 
-        # Итог по разделу
+        # Итог по разделу - объединяем колонки 0-3 (A-D)
         if section.section_total > 0:
             row = table.add_row()
-            set_cell_text(row.cells[1], "ИТОГО по разделу", bold=True, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
+            merge_cells(row, 0, 3)
+            set_cell_text(row.cells[0], "ИТОГО по разделу", bold=True, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
             set_cell_text(row.cells[4], f"{section.section_total:,.2f} ₽", bold=True,
                           alignment=WD_ALIGN_PARAGRAPH.RIGHT)
-            for col in [0, 2, 3]:
-                row.cells[col].text = ""
             for cell in row.cells:
                 set_cell_border(cell)
 
-        # Пустая строка между разделами
-        row = table.add_row()
-        for cell in row.cells:
-            cell.text = ""
-            set_cell_border(cell)
-
-    # Общий итог
+    # Общий итог - объединяем колонки 0-3 (A-D)
     if doc.grand_total > 0:
         row = table.add_row()
-        set_cell_text(row.cells[1], "ОБЩИЙ ИТОГ", bold=True, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
+        merge_cells(row, 0, 3)
+        set_cell_text(row.cells[0], "ОБЩИЙ ИТОГ", bold=True, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
         set_cell_text(row.cells[4], f"{doc.grand_total:,.2f} ₽", bold=True, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
-        for col in [0, 2, 3]:
-            row.cells[col].text = ""
         for cell in row.cells:
             set_cell_border(cell)
 

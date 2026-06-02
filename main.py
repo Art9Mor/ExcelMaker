@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 
 import typer
-from loguru import logger
 
 from src.utils.logger import setup_logger
 
@@ -10,7 +9,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True)
 
 
 @app.command()
-def cli(
+def run_cli(
     input_file: Path = typer.Argument(..., exists=True, readable=True, help="Путь к входному .xlsm файлу"),
     output: Path | None = typer.Option(None, "--output", "-o", help="Путь для сохранения результата"),
     log_level: str = typer.Option("INFO", "--log-level", "-l"),
@@ -48,8 +47,9 @@ def run_gui() -> None:
 
 
 if __name__ == "__main__":
-    if "--gui" in sys.argv:
-        sys.argv.remove("--gui")
-        run_gui()
-    else:
+    if len(sys.argv) > 1 and sys.argv[1] != "--gui":
         app()
+    else:
+        if "--gui" in sys.argv:
+            sys.argv.remove("--gui")
+        run_gui()
