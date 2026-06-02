@@ -445,7 +445,7 @@ class MainWindow(QWidget):
         output_word_path = None
 
         if self.check_excel.isChecked():
-            output_excel_path = base_path.with_suffix(".xlsm")
+            output_excel_path = base_path.with_suffix(".xlsx")
             logger.info(f"Excel: {output_excel_path}")
 
         if self.check_word.isChecked():

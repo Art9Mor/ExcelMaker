@@ -11,7 +11,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['/home/amshegar/PycharmProjects/Work/NZO/ExcelMaker/main.py'],
+    ['D:\\Programs2\\PyCharmProjects\\ExcelMaker\\main.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -44,5 +44,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['/home/amshegar/PycharmProjects/Work/NZO/ExcelMaker/assets/icon.ico'],
+    icon=['D:\\Programs2\\PyCharmProjects\\ExcelMaker\\assets\\icon.ico'],
 )
