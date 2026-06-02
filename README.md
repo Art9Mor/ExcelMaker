@@ -113,3 +113,16 @@ pytest
 - Для `.xlsm` файл сохраняется с `keep_vba=True`.
 - Проект не создаёт лишних листов.
 - Первая вкладка остаётся основным источником данных.
+
+
+Ошибка сборки:
+Traceback (most recent call last):
+  File "main.py", line 55, in <module>
+    run_gui()
+  File "main.py", line 38, in run_gui
+    setup_logger(log_level="INFO", log_to_file=True)
+  File "src\utils\logger.py", line 22, in setup_logger
+    logger.add(
+  File "loguru\_logger.py", line 872, in add
+    raise TypeError("Cannot log to objects of type '%s'" % type(sink).__name__)
+TypeError: Cannot log to objects of type 'NoneType'
