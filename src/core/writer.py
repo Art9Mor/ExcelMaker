@@ -5,7 +5,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Font, Alignment, Border, Side
 from .models import SpecDocument
 
-# Настройки вывода (можно вынести в конфиг)
+# Настройки вывода
 WRITER_CONFIG = {
     "sheet_name": "Спецификация",
     "headers": ['№ п/п', 'Наименование', 'Ед. изм.', 'Кол-во', 'Сумма, руб'],
@@ -18,16 +18,14 @@ WRITER_CONFIG = {
 
 
 def create_result_sheet(wb: Workbook, sheet_name: str = None) -> Worksheet:
-    """Создаёт новый лист для результата"""
+    """Создаёт новый лист для результата в чистом workbook"""
     if sheet_name is None:
         sheet_name = WRITER_CONFIG["sheet_name"]
-    if sheet_name in wb.sheetnames:
-        del wb[sheet_name]
     return wb.create_sheet(sheet_name)
 
 
 def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
-    """Универсальная запись спецификации на лист"""
+    """Записывает спецификацию на новый лист в чистом workbook"""
     ws = create_result_sheet(wb)
 
     # Стили
@@ -100,7 +98,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
             cell_name.font = normal_font
             cell_name.alignment = left_top_align
 
-            # Автовысота для многострочного текста
+            # Автовысота
             if WRITER_CONFIG["enable_auto_height"] and item.name and ('\n' in item.name):
                 lines = item.name.count('\n') + 1
                 ws.row_dimensions[row].height = 12.75 * lines
@@ -117,6 +115,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
             cell_qty.alignment = center_align
             cell_qty.font = normal_font
 
+            # Сумма
             cell_total = ws.cell(row, 5, item.total)
             cell_total.border = thin_border
             cell_total.alignment = right_align
@@ -125,6 +124,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
 
             row += 1
 
+        # Итог по разделу
         if section.section_total > 0:
             ws.merge_cells(f'A{row}:D{row}')
             cell = ws.cell(row, 1, WRITER_CONFIG["total_text"])
@@ -141,6 +141,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
 
         row += 1
 
+    # Общий итог
     if doc.grand_total > 0:
         ws.merge_cells(f'A{row}:D{row}')
         cell = ws.cell(row, 1, WRITER_CONFIG["grand_total_text"])
@@ -154,14 +155,22 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
         cell_total.alignment = right_align
         cell_total.number_format = '#,##0.00'
 
+    # Установка ширины колонок
     for col_letter, width in WRITER_CONFIG["column_widths"].items():
         ws.column_dimensions[col_letter].width = width
+
+    # Включаем перенос текста для колонки B
+    for r in range(1, row + 1):
+        cell = ws.cell(r, 2)
+        if cell.value:
+            cell.alignment = left_top_align
 
     logger.info(
         f"Создан лист '{WRITER_CONFIG['sheet_name']}' с {doc.total_items} позициями, итого: {doc.grand_total:.2f}")
 
 
 def save_workbook(wb: Workbook, file_path: Path) -> None:
+    """Сохраняет workbook"""
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         wb.save(str(file_path))

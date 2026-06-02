@@ -7,7 +7,7 @@ from .models import SpecDocument, Section, SpecItem, SpecHeader
 STRUCTURE_HEADER = "Структура"
 RESULT_MARKER = "ИТОГ"
 
-# Настройки (можно менять под разные файлы)
+# Настройки
 SECTION_TITLES = {
     "Корпус": "Корпус",
     "Отсек высоковольтного выключателя": "Отсек высоковольтного выключателя",
@@ -65,7 +65,6 @@ def _find_header_row(ws) -> tuple[int, dict]:
             elif val_str == "Ед. изм.":
                 col_map['unit'] = col_idx
 
-        # Если нашли основные колонки
         if 'name' in col_map and 'qty' in col_map:
             logger.info(f"Найдены колонки в строке {row_idx}: {col_map}")
             return row_idx, col_map
@@ -91,12 +90,14 @@ def _find_project_info(ws) -> SpecHeader:
     return header
 
 
-def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
-    ws = wb[source_name]
+def parse_workbook(ws) -> SpecDocument:
+    """
+    Парсит лист Excel и извлекает спецификацию (без загрузки всего workbook)
+    """
     header = _find_project_info(ws)
 
     doc = SpecDocument(
-        source_sheet=source_name,
+        source_sheet=ws.title,
         target_sheet="Спецификация",
         header=header
     )
@@ -126,11 +127,6 @@ def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
         qty_val = row[qty_col].value if qty_col < len(row) and row[qty_col] else None
         unit_val = _clean(row[unit_col].value) if unit_col and unit_col < len(row) and row[unit_col] and row[
             unit_col].value else "шт"
-
-        # Пропускаем скрытые строки? (раскомментировать если нужно)
-        # hide_col = col_map.get('hide')
-        # if hide_col and hide_col < len(row) and row[hide_col] and row[hide_col].value == "/*":
-        #     continue
 
         if struct_val == STRUCTURE_HEADER:
             continue
@@ -187,7 +183,20 @@ def parse_workbook(wb: Workbook, source_name: str) -> SpecDocument:
 
 
 def load_and_parse(file_path: Path) -> tuple[Workbook, SpecDocument]:
-    wb = load_workbook(str(file_path), data_only=True, keep_vba=True)
-    source_name = wb.sheetnames[0]
-    doc = parse_workbook(wb, source_name)
-    return wb, doc
+    """Загружает только первый лист для чтения данных, возвращает новый workbook для записи"""
+    # Загружаем исходный файл только для чтения данных
+    wb_read = load_workbook(str(file_path), data_only=True)
+    source_ws = wb_read.worksheets[0]
+
+    # Парсим данные
+    doc = parse_workbook(source_ws)
+
+    # Создаём НОВЫЙ workbook (чистый, без лишних листов)
+    wb_write = Workbook()
+    # Удаляем стандартный пустой лист (он будет создан заново при записи)
+    default_sheet = wb_write.active
+    wb_write.remove(default_sheet)
+
+    wb_read.close()
+
+    return wb_write, doc
