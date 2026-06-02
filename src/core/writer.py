@@ -69,7 +69,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
         cell.border = thin_border
     row += 1
 
-    # Запоминаем строки с заголовками секций для последующего центрирования
+    # Запоминаем строки с заголовками секций
     section_rows = []
 
     # Заполнение данных
@@ -85,7 +85,6 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
         cell_title.alignment = center_align
         cell_title.border = thin_border
 
-        # Запоминаем строку для последующего центрирования
         section_rows.append(row)
 
         for col in [3, 4, 5]:
@@ -100,7 +99,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
             cell_num.alignment = center_align
             cell_num.font = normal_font
 
-            # Наименование (слева, с переносом)
+            # Наименование
             cell_name = ws.cell(row, 2, item.name)
             cell_name.border = thin_border
             cell_name.font = normal_font
@@ -131,7 +130,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
 
             row += 1
 
-        # Итог по разделу
+        # Итог по разделу - объединяем колонки A-D
         if section.section_total > 0:
             ws.merge_cells(f'A{row}:D{row}')
             cell = ws.cell(row, 1, WRITER_CONFIG["total_text"])
@@ -139,16 +138,16 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
             cell.font = total_font
             cell.alignment = right_align
 
+            # Сумма в колонке E
             cell_total = ws.cell(row, 5, section.section_total)
             cell_total.border = thin_border
             cell_total.font = total_font
             cell_total.alignment = right_align
             cell_total.number_format = '#,##0.00'
+
             row += 1
 
-        row += 1
-
-    # Общий итог
+    # Общий итог - объединяем колонки A-D
     if doc.grand_total > 0:
         ws.merge_cells(f'A{row}:D{row}')
         cell = ws.cell(row, 1, WRITER_CONFIG["grand_total_text"])
@@ -162,7 +161,7 @@ def write_spec_to_sheet(wb: Workbook, doc: SpecDocument) -> None:
         cell_total.alignment = right_align
         cell_total.number_format = '#,##0.00'
 
-    # ПРИНУДИТЕЛЬНО применяем центрирование для заголовков секций
+    # Принудительное центрирование для заголовков секций
     for r in section_rows:
         ws.cell(r, 1).alignment = center_align
         ws.cell(r, 2).alignment = center_align
