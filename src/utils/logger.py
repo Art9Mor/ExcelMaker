@@ -1,16 +1,24 @@
 import sys
+import os
 from pathlib import Path
 from loguru import logger
 
-# Определяем путь для логов в зависимости от окружения
-if getattr(sys, 'frozen', False):
-    # Запущено из .exe
-    APP_DIR = Path(sys.executable).parent
-    LOG_DIR = APP_DIR / "logs"
-else:
-    # Запущено из Python
-    LOG_DIR = Path.home() / "AppData" / "Local" / "EMSpecGenerator" / "logs"
+def get_app_data_dir() -> Path:
+    """Возвращает правильную папку для хранения логов"""
+    if getattr(sys, 'frozen', False):
+        # .exe режим
+        return Path(sys.executable).parent / "logs"
+    else:
+        # Python режим
+        if sys.platform == "win32":
+            # Windows
+            app_data = os.environ.get('APPDATA', str(Path.home() / 'AppData' / 'Roaming'))
+            return Path(app_data) / "EMSpecGenerator" / "logs"
+        else:
+            # Linux/Mac
+            return Path.home() / ".local" / "share" / "EMSpecGenerator" / "logs"
 
+LOG_DIR = get_app_data_dir()
 LOG_FILE = LOG_DIR / "app.log"
 
 _configured = False
@@ -27,7 +35,7 @@ def setup_logger(log_level: str = "DEBUG", log_to_file: bool = True, force: bool
     # Удаляем все существующие обработчики
     logger.remove()
 
-    # Добавляем вывод в консоль (для отладки)
+    # Добавляем вывод в консоль (всегда)
     logger.add(
         sys.stderr,
         level=log_level,
@@ -35,7 +43,7 @@ def setup_logger(log_level: str = "DEBUG", log_to_file: bool = True, force: bool
         colorize=True,
     )
 
-    # Добавляем файловый лог только если включено и папка доступна
+    # Добавляем файловый лог
     if log_to_file:
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,11 +54,10 @@ def setup_logger(log_level: str = "DEBUG", log_to_file: bool = True, force: bool
                 rotation="5 MB",
                 retention=3,
                 encoding="utf-8",
-                enqueue=True,  # Для работы в многопоточном режиме
+                enqueue=True,
             )
             logger.debug(f"Лог-файл: {LOG_FILE}")
         except Exception as e:
-            # Если не можем писать в лог-файл, просто выводим предупреждение
             logger.warning(f"Не удалось создать лог-файл: {e}")
 
     _configured = True
