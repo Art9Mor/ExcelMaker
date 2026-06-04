@@ -11,6 +11,10 @@ from .models import SpecDocument
 
 
 def set_cell_border(cell, border_size=1):
+    """
+    Установка границ для ячейки таблицы.
+    """
+
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
 
@@ -24,7 +28,10 @@ def set_cell_border(cell, border_size=1):
 
 
 def merge_cells(row, start_col, end_col):
-    """Объединяет ячейки в строке от start_col до end_col"""
+    """
+    Объединение ячеек в строке от start_col до end_col.
+    """
+
     if start_col == end_col:
         return
     cell = row.cells[start_col]
@@ -32,6 +39,10 @@ def merge_cells(row, start_col, end_col):
 
 
 def set_cell_text(cell, text, bold=False, alignment=None):
+    """
+    Установка текста в ячейку с поддержкой переносов строк.
+    """
+
     if not text:
         cell.text = ""
         return
@@ -57,17 +68,19 @@ def set_cell_text(cell, text, bold=False, alignment=None):
 
 
 def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
+    """
+    Создание Word-документа.
+    """
+
     document = Document()
 
     style = document.styles['Normal']
     style.font.name = 'Arial'
     style.font.size = Pt(10)
 
-    # Заголовок
     title = document.add_heading('Техническая спецификация', level=1)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Подзаголовок
     if doc.header and doc.header.equipment_type:
         subtitle = document.add_paragraph()
         subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -77,7 +90,6 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
 
     document.add_paragraph()
 
-    # Таблица
     table = document.add_table(rows=1, cols=5)
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -88,7 +100,6 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
     table.columns[3].width = Cm(2)
     table.columns[4].width = Cm(3)
 
-    # Заголовки
     headers = ['№ п/п', 'Наименование', 'Ед. изм.', 'Кол-во', 'Сумма, руб']
     header_row = table.rows[0]
     for i, header in enumerate(headers):
@@ -96,9 +107,7 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
         set_cell_text(cell, header, bold=True, alignment=WD_ALIGN_PARAGRAPH.CENTER)
         set_cell_border(cell)
 
-    # Заполнение данных
     for section in doc.sections:
-        # Заголовок секции
         row = table.add_row()
         set_cell_text(row.cells[0], str(section.number), bold=True, alignment=WD_ALIGN_PARAGRAPH.CENTER)
         set_cell_text(row.cells[1], section.title, bold=True, alignment=WD_ALIGN_PARAGRAPH.CENTER)
@@ -107,7 +116,6 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
         for cell in row.cells:
             set_cell_border(cell)
 
-        # Позиции
         for item in section.items:
             row = table.add_row()
             set_cell_text(row.cells[0], item.number, alignment=WD_ALIGN_PARAGRAPH.CENTER)
@@ -119,7 +127,6 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
             for cell in row.cells:
                 set_cell_border(cell)
 
-        # Итог по разделу - объединяем колонки 0-3 (A-D)
         if section.section_total > 0:
             row = table.add_row()
             merge_cells(row, 0, 3)
@@ -129,7 +136,6 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
             for cell in row.cells:
                 set_cell_border(cell)
 
-    # Общий итог - объединяем колонки 0-3 (A-D)
     if doc.grand_total > 0:
         row = table.add_row()
         merge_cells(row, 0, 3)
@@ -143,4 +149,8 @@ def create_word_specification(doc: SpecDocument, output_path: Path) -> None:
 
 
 def save_as_word(doc: SpecDocument, output_path: Path) -> None:
+    """
+    Сохранение Word-документа.
+    """
+
     create_word_specification(doc, output_path)
