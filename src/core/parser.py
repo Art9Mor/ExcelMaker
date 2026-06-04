@@ -7,7 +7,6 @@ from .models import SpecDocument, Section, SpecItem, SpecHeader
 STRUCTURE_HEADER = "Структура"
 RESULT_MARKER = "ИТОГ"
 
-# Настройки
 SECTION_TITLES = {
     "Корпус": "Корпус",
     "Отсек высоковольтного выключателя": "Отсек высоковольтного выключателя",
@@ -40,7 +39,10 @@ def _as_number(v) -> float:
 
 
 def _find_header_row(ws) -> tuple[int, dict]:
-    """Находит строку с заголовками и определяет колонки"""
+    """
+    Поиск строки с заголовками и определение колонки.
+    """
+
     for row_idx in range(1, min(50, ws.max_row + 1)):
         row = ws[row_idx]
         if not row:
@@ -73,6 +75,10 @@ def _find_header_row(ws) -> tuple[int, dict]:
 
 
 def _find_project_info(ws) -> SpecHeader:
+    """
+    Поиск информации по проекту.
+    """
+
     header = SpecHeader()
     for row in ws.iter_rows(values_only=True, max_row=40):
         if not row or len(row) < 4:
@@ -92,8 +98,9 @@ def _find_project_info(ws) -> SpecHeader:
 
 def parse_workbook(ws) -> SpecDocument:
     """
-    Парсит лист Excel и извлекает спецификацию (без загрузки всего workbook)
+    Парсинг листа Excel и извлечение спецификации (без загрузки всего workbook)
     """
+
     header = _find_project_info(ws)
 
     doc = SpecDocument(
@@ -134,7 +141,6 @@ def parse_workbook(ws) -> SpecDocument:
         if struct_val == RESULT_MARKER or name_val == RESULT_MARKER:
             break
 
-        # Определение секции
         is_section = struct_val and struct_val not in ["", "None"] and not name_val
         if is_section:
             section_counter += 1
@@ -145,7 +151,6 @@ def parse_workbook(ws) -> SpecDocument:
             logger.info(f"Секция {section_counter}: {section_title}")
             continue
 
-        # Позиция
         if name_val and current_section:
             has_qty = qty_val is not None and qty_val != 0 and qty_val != ""
             if has_qty:
@@ -168,7 +173,6 @@ def parse_workbook(ws) -> SpecDocument:
                 current_section.section_total += total
                 doc.grand_total += total
 
-    # Сортировка секций
     if SECTION_ORDER:
         doc.sections.sort(
             key=lambda s: SECTION_ORDER.index(s.title) if s.title in SECTION_ORDER else len(SECTION_ORDER))
@@ -183,17 +187,16 @@ def parse_workbook(ws) -> SpecDocument:
 
 
 def load_and_parse(file_path: Path) -> tuple[Workbook, SpecDocument]:
-    """Загружает только первый лист для чтения данных, возвращает новый workbook для записи"""
-    # Загружаем исходный файл только для чтения данных
+    """
+    Загрузка первого листа для чтения данных, возврат нового workbook для записи.
+    """
+
     wb_read = load_workbook(str(file_path), data_only=True)
     source_ws = wb_read.worksheets[0]
 
-    # Парсим данные
     doc = parse_workbook(source_ws)
 
-    # Создаём НОВЫЙ workbook (чистый, без лишних листов)
     wb_write = Workbook()
-    # Удаляем стандартный пустой лист (он будет создан заново при записи)
     default_sheet = wb_write.active
     wb_write.remove(default_sheet)
 

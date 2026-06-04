@@ -8,6 +8,10 @@ from .writer import save_workbook, write_spec_to_sheet
 
 
 class ProcessingResult:
+    """
+    Результат обработки Excel-файла.
+    """
+
     def __init__(
         self,
         success: bool,
@@ -16,6 +20,10 @@ class ProcessingResult:
         word_path: Path | None = None,
         error: str = "",
     ) -> None:
+        """
+        Инициализация результата обработки.
+        """
+
         self.success = success
         self.doc = doc
         self.output_path = output_path
@@ -23,8 +31,13 @@ class ProcessingResult:
         self.error = error
 
     def summary(self) -> str:
+        """
+        Формирование текстовой сводки результата обработки.
+        """
+
         if not self.success:
             return f"Ошибка: {self.error}"
+
         d = self.doc
         lines = [
             "✓ Обработка завершена успешно",
@@ -41,6 +54,10 @@ class ProcessingResult:
 
 
 def process_file(input_path: Path, output_path: Path | None = None) -> ProcessingResult:
+    """
+    Обработка Excel-файла и создание спецификации.
+    """
+
     if output_path is None:
         output_path = input_path.parent / f"{input_path.stem}_specification{input_path.suffix}"
 
