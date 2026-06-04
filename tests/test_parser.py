@@ -1,39 +1,78 @@
-from openpyxl import Workbook
+"""
+Модуль с тестами для парсера Excel-файлов.
+"""
 
-from src.core.parser import parse_workbook
-from src.core.models import SpecDocument
-
-
-def make_sample_workbook() -> Workbook:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Лист1"
-
-    ws.append(["Структура", "Скрыть строку, символы /*", "Опция", "Значение", "Примечание 1", "Примечание 2", "Примечание 3", "Примечание 4"])
-    ws.append(["ДАННЫЕ", "/*", "Пункт 1"])
-    ws.append(["Проект", "", "2055"])
-    ws.append(["Тип оборудования", "", "ЯКНО"])
-    ws.append(["Структура", "Скрыть строку, символы /*", "Наименование", "Цена", "Количество", "Стоиомсть, руб", "Стоимость с наценкой, руб", "Ед. изм."])
-    ws.append(["1", "", "Корпус"])
-    ws.append(["", "", "1.1", "Каркас ЯКНО", "", "шт", 1])
-    ws.append(["", "", "1.2", "Рама опорная", "", "шт", 1])
-    ws.append(["2", "", "Отсек"])
-    ws.append(["", "", "2.1", "Вакуумный выключатель", "", "шт", 1])
-    ws.append(["ИТОГ", "", "", "", "", "", "", ""])
-
-    return wb
+import pytest
+from src.core.parser import _clean, _as_number, _find_header_row
 
 
-def test_parse_workbook_extracts_sections_and_items():
-    wb = make_sample_workbook()
-    doc = parse_workbook(wb, "Лист1")
+class TestClean:
+    """
+    Тесты для функции _clean.
+    """
 
-    assert isinstance(doc, SpecDocument)
-    assert doc.source_sheet == "Лист1"
-    assert doc.target_sheet == "Лист1"
-    assert len(doc.sections) == 2
-    assert doc.total_items == 3
+    @pytest.mark.parametrize("input_value,expected", [
+        (None, ""),
+        ("  test  ", "test"),
+        ("test\xa0string", "test string"),
+        ("", ""),
+        ("   ", ""),
+    ])
+    def test_clean(self, input_value, expected):
+        """
+        Параметризованный тест очистки строк.
+        """
 
-    assert doc.sections[0].title == "Корпус"
-    assert doc.sections[0].items[0].number == "1.1"
-    assert doc.sections[0].items[0].name == "Каркас ЯКНО"
+        assert _clean(input_value) == expected
+
+
+class TestAsNumber:
+    """
+    Тесты для функции _as_number.
+    """
+
+    @pytest.mark.parametrize("input_value,expected", [
+        (None, 0.0),
+        (100, 100.0),
+        (100.5, 100.5),
+        ("100", 100.0),
+        ("100.5", 100.5),
+        ("100 ₽", 100.0),
+        ("abc", 0.0),
+        ("", 0.0),
+    ])
+    def test_as_number(self, input_value, expected):
+        """
+        Параметризованный тест преобразования в число.
+        """
+
+        assert _as_number(input_value) == expected
+
+
+class TestFindHeaderRow:
+    """
+    Тесты для функции _find_header_row.
+    """
+
+    def test_find_header_row(self, workbook_with_headers):
+        """
+        Тест поиска строки с заголовками с использованием фикстуры.
+        """
+
+        ws = workbook_with_headers.active
+        row_idx, col_map = _find_header_row(ws)
+        assert row_idx == 1
+        assert col_map['struct'] == 0
+        assert col_map['name'] == 2
+        assert col_map['price'] == 3
+        assert col_map['qty'] == 4
+        assert col_map['unit'] == 7
+
+    def test_find_header_row_not_found(self, empty_workbook):
+        """
+        Тест поиска строки с заголовками когда её нет.
+        """
+
+        ws = empty_workbook.active
+        with pytest.raises(ValueError, match="Не найден заголовок таблицы"):
+            _find_header_row(ws)

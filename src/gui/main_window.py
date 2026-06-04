@@ -27,6 +27,10 @@ from ..core.word_generator import save_as_word
 
 
 class WorkerThread(QThread):
+    """
+    Поток фоновой обработки файла.
+    """
+
     finished = pyqtSignal(object)
 
     def __init__(
@@ -43,6 +47,10 @@ class WorkerThread(QThread):
         self.output_word_path = output_word_path
 
     def run(self) -> None:
+        """
+        Запуск обработки в отдельном потоке.
+        """
+
         try:
             write_spec_to_sheet(self.wb, self.doc)
             self.wb.save(str(self.output_excel_path))
@@ -63,11 +71,19 @@ class WorkerThread(QThread):
         self.finished.emit(result)
 
     def stop(self):
+        """
+        Безопасная остановка потока.
+        """
+
         self.quit()
         self.wait(5000)
 
 
 class DropZone(QFrame):
+    """
+    Область перетаскивания файлов.
+    """
+
     file_dropped = pyqtSignal(Path)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -75,7 +91,6 @@ class DropZone(QFrame):
         self.setAcceptDrops(True)
         self.setMinimumHeight(120)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        # Убираем обводку, оставляем только фон
         self.setStyleSheet("""
             QFrame {
                 background-color: #F4F8FC;
@@ -99,14 +114,26 @@ class DropZone(QFrame):
         layout.addWidget(self.hint_label)
 
     def set_file(self, path: Path) -> None:
+        """
+        Отображение выбранного файла.
+        """
+
         self.hint_label.setText(f"✓  {path.name}")
         self.hint_label.setStyleSheet("color: #1A6B2A; font-weight: bold;")
 
     def reset(self) -> None:
+        """
+        Сброс отображения области перетаскивания.
+        """
+
         self.hint_label.setText("Перетащите .xlsm файл сюда\nили нажмите «Выбрать файл»")
         self.hint_label.setStyleSheet("color: #5B6B7A; font-weight: normal;")
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        """
+        Обработка входа файла в область перетаскивания.
+        """
+
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             if any(u.toLocalFile().lower().endswith((".xlsm", ".xlsx")) for u in urls):
@@ -121,6 +148,10 @@ class DropZone(QFrame):
         event.ignore()
 
     def dragLeaveEvent(self, event) -> None:
+        """
+        Обработка выхода файла из области перетаскивания.
+        """
+
         self.setStyleSheet("""
             QFrame {
                 background-color: #F4F8FC;
@@ -129,6 +160,10 @@ class DropZone(QFrame):
         """)
 
     def dropEvent(self, event: QDropEvent) -> None:
+        """
+        Обработка сброса файла в область перетаскивания.
+        """
+
         self.setStyleSheet("""
             QFrame {
                 background-color: #F4F8FC;
@@ -143,10 +178,18 @@ class DropZone(QFrame):
 
 
 class QtLogHandler:
+    """
+    Обработчик вывода логов в интерфейс.
+    """
+
     def __init__(self, text_edit: QTextEdit) -> None:
         self.text_edit = text_edit
 
     def write(self, message: str) -> None:
+        """
+        Вывод сообщения в журнал интерфейса.
+        """
+
         stripped = message.strip()
         if not stripped:
             return
@@ -167,6 +210,10 @@ class QtLogHandler:
 
 
 class MainWindow(QWidget):
+    """
+    Главное окно приложения.
+    """
+
     APP_TITLE = "EM Spec Generator"
     WINDOW_MIN_W = 650
     WINDOW_MIN_H = 600
@@ -180,6 +227,10 @@ class MainWindow(QWidget):
         self._setup_log_handler()
 
     def _setup_ui(self) -> None:
+        """
+        Создание элементов пользовательского интерфейса.
+        """
+
         self.setWindowTitle(self.APP_TITLE)
         self.setMinimumSize(self.WINDOW_MIN_W, self.WINDOW_MIN_H)
         self.setStyleSheet("""
@@ -270,32 +321,27 @@ class MainWindow(QWidget):
         root.setContentsMargins(20, 20, 20, 16)
         root.setSpacing(15)
 
-        # Заголовок
         title = QLabel(self.APP_TITLE)
         title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
         title.setStyleSheet("color: #1A2D40; padding: 5px 0;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
 
-        # Подзаголовок
         subtitle = QLabel("Генерирует спецификацию из данных первого листа .xlsm файла")
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color: #5B6B7A; font-size: 9pt;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(subtitle)
 
-        # Разделитель
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("background-color: #D0D8E0; max-height: 1px;")
         root.addWidget(line)
 
-        # Drop zone
         self.drop_zone = DropZone()
         self.drop_zone.file_dropped.connect(self._on_file_selected)
         root.addWidget(self.drop_zone)
 
-        # Группа выбора формата с отступами
         format_group = QGroupBox("Формат вывода")
         format_group.setStyleSheet("""
             QGroupBox {
@@ -320,7 +366,6 @@ class MainWindow(QWidget):
         format_layout.addStretch()
         root.addWidget(format_group)
 
-        # Кнопки действий
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
 
@@ -344,7 +389,6 @@ class MainWindow(QWidget):
         btn_row.addWidget(self.btn_reset)
         root.addLayout(btn_row)
 
-        # Выбор папки
         output_row = QHBoxLayout()
         output_row.setSpacing(10)
 
@@ -360,19 +404,16 @@ class MainWindow(QWidget):
         output_row.addWidget(self.btn_choose_output)
         root.addLayout(output_row)
 
-        # Прогресс
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
         self.progress.setFixedHeight(4)
         root.addWidget(self.progress)
 
-        # Статус
         self.status_label = QLabel("Выберите файл для начала работы")
         self.status_label.setStyleSheet("color: #5B6B7A; font-size: 9pt; padding: 5px 0;")
         root.addWidget(self.status_label)
 
-        # Журнал
         log_title = QLabel("📋 Журнал операций")
         log_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         log_title.setStyleSheet("color: #3C4858; padding-top: 8px;")
@@ -384,6 +425,10 @@ class MainWindow(QWidget):
         root.addWidget(self.log_view, stretch=1)
 
     def _setup_log_handler(self) -> None:
+        """
+        Настройка вывода логов в интерфейс.
+        """
+
         handler = QtLogHandler(self.log_view)
         logger.add(
             handler.write,
@@ -393,6 +438,10 @@ class MainWindow(QWidget):
         )
 
     def _open_file_dialog(self) -> None:
+        """
+        Открытие диалога выбора файла.
+        """
+
         path_str, _ = QFileDialog.getOpenFileName(
             self,
             "Выберите файл Excel",
@@ -403,6 +452,10 @@ class MainWindow(QWidget):
             self._on_file_selected(Path(path_str))
 
     def _choose_output_folder(self) -> None:
+        """
+        Выбор папки для сохранения результата.
+        """
+
         initial_dir = str(self._selected_file.parent) if self._selected_file else ""
         folder = QFileDialog.getExistingDirectory(
             self,
@@ -418,6 +471,10 @@ class MainWindow(QWidget):
             self.output_path_label.setText("📁 Результат будет сохранён рядом с исходным файлом")
 
     def _on_file_selected(self, path: Path) -> None:
+        """
+        Обработка выбора файла.
+        """
+
         self._selected_file = path
         self._output_folder = None
         self.output_path_label.setText("📁 Результат будет сохранён рядом с исходным файлом")
@@ -429,6 +486,10 @@ class MainWindow(QWidget):
         logger.info(f"Файл выбран: {path}")
 
     def _run_processing(self) -> None:
+        """
+        Запуск обработки выбранного файла.
+        """
+
         if not self._selected_file:
             return
 
@@ -474,6 +535,10 @@ class MainWindow(QWidget):
         self._worker.start()
 
     def _on_processing_done(self, result: ProcessingResult) -> None:
+        """
+        Обработка завершения генерации спецификации.
+        """
+
         self._set_busy(False)
 
         if result.success:
@@ -501,6 +566,10 @@ class MainWindow(QWidget):
             self._worker = None
 
     def _reset(self) -> None:
+        """
+        Сброс состояния интерфейса.
+        """
+
         if self._worker is not None:
             self._worker.stop()
             self._worker = None
@@ -516,6 +585,10 @@ class MainWindow(QWidget):
         self._set_status("Выберите файл для начала работы", "info")
 
     def _set_busy(self, busy: bool) -> None:
+        """
+        Переключение режима занятости интерфейса.
+        """
+
         self.progress.setVisible(busy)
         self.btn_run.setEnabled(not busy)
         self.btn_choose.setEnabled(not busy)
@@ -523,6 +596,10 @@ class MainWindow(QWidget):
         self.btn_choose_output.setEnabled(not busy and self._selected_file is not None)
 
     def _set_status(self, text: str, kind: str = "info") -> None:
+        """
+        Обновление строки состояния.
+        """
+
         colors = {
             "info": "#5B6B7A",
             "success": "#1A6B2A",
@@ -532,7 +609,11 @@ class MainWindow(QWidget):
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {color}; font-size: 9pt; padding: 5px 0;")
 
-    def closeEvent(self, event):
+    def close_event(self, event):
+        """
+        Обработка закрытия окна.
+        """
+
         if self._worker is not None:
             self._worker.stop()
             self._worker = None
