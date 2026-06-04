@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 
-
 @dataclass(slots=True)
 class SpecItem:
     """
@@ -11,10 +10,9 @@ class SpecItem:
     name: str
     unit: str = "шт"
     quantity: int | float = 1
-    price: str | None = None
-    sum: str | None = None
-    sum_with_markup: str | None = None
-
+    price: float = 0.0
+    total: float = 0.0
+    is_hidden: bool = False
 
 @dataclass(slots=True)
 class Section:
@@ -25,7 +23,7 @@ class Section:
     number: int
     title: str
     items: list[SpecItem] = field(default_factory=list)
-
+    section_total: float = 0.0  # Сумма всех позиций в разделе
 
 @dataclass(slots=True)
 class SpecHeader:
@@ -39,7 +37,6 @@ class SpecHeader:
     customer: str | None = None
     calculation_date: str | None = None
 
-
 @dataclass(slots=True)
 class SpecDocument:
     """
@@ -50,12 +47,8 @@ class SpecDocument:
     target_sheet: str
     header: SpecHeader = field(default_factory=SpecHeader)
     sections: list[Section] = field(default_factory=list)
-    totals: dict[str, str] = field(default_factory=dict)
+    grand_total: float = 0.0
 
     @property
     def total_items(self) -> int:
-        """
-        Получение общего количества позиций спецификации.
-        """
-
         return sum(len(s.items) for s in self.sections)
